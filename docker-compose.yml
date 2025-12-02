@@ -1,0 +1,11 @@
+services:
+  stream-server:
+    build:
+      context: .
+    image: ad-astra-video/stream-server:latest
+    container_name: byoc-stream-server
+    volumes:
+      - ./data/wallet:/wallet
+    ports:
+      - 8000:8000
+    

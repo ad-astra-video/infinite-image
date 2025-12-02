@@ -1,0 +1,7 @@
+pydantic
+fastapi
+httpx
+web3
+x402
+eth-abi
+eth-account

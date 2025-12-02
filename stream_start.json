@@ -1,0 +1,23 @@
+{
+	"header":
+	{
+		"capability": "infinite-flux-2-dev",
+		"timeout_seconds": 120,
+		"request": {
+		},
+		"parameters": {
+			"enable_video_ingress": false,
+			"enable_video_egress": true,
+			"enable_data_output": true
+		}
+	},
+	"stream_request":
+	{
+		"rtmp_output": "",
+		"params": {
+			"prompt": "A serene landscape with mountains and a river at sunset, digital art",
+			"height": 1024,
+			"width": 1024
+		}
+	}
+}
