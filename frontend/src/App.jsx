@@ -3,6 +3,7 @@ import './App.css'
 import SettingsModal from './components/SettingsModal'
 import WalletConnect from './components/WalletConnect'
 import SuperChat from './components/SuperChat'
+import ChatInterface from './components/ChatInterface'
 import {
   Coffee,
   Video,
@@ -11,7 +12,8 @@ import {
   ChevronDown,
   ChevronUp,
   Send,
-  Loader2
+  Loader2,
+  MessageCircle
 } from 'lucide-react'
 import { useWallet } from './components/WalletConnect'
 
@@ -405,6 +407,9 @@ function App() {
         </div>
         {/* Super Chat Ticker - moved inside video-container to match width */}
         <SuperChat />
+
+        {/* Enhanced Chat Interface */}
+        <ChatInterface />
 
       </div>
 
