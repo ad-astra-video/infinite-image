@@ -92,18 +92,6 @@ export function WalletProvider({ children }) {
   // Connection state - trust isConnected as primary indicator
   const connected = !!isConnected
 
-  // Debug logging for connection state changes
-  useEffect(() => {
-    console.log('WalletProvider connection state changed:', {
-      connected,
-      address,
-      isConnected,
-      chain: chain ? { id: chain.id, name: chain.name, network: chain.network } : undefined,
-      usdcBalance,
-      timestamp: new Date().toISOString()
-    })
-  }, [connected, address, isConnected, chain, usdcBalance])
-
   // X402 signing function with robust account data handling
   const signX402 = useMemo(() => async (paymentRequirements) => {
     console.log('WalletProvider signX402 called:', {

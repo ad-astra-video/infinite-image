@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import './App.css'
 import SettingsModal from './components/SettingsModal'
 import WalletConnect from './components/WalletConnect'
+import SuperChat from './components/SuperChat'
 import {
   Coffee,
   Video,
@@ -19,11 +20,6 @@ const API_BASE = ''
 function App() {
   // Use centralized wallet hook - single source of truth for all wallet data
   const wallet = useWallet()
-
-  // Debug logging for context changes
-  useEffect(() => {
-    console.log('App: walletConnected context changed:', wallet.connected, 'at', new Date().toISOString())
-  }, [wallet.connected])
 
   function buildXPaymentHeader(authorization, signature, x402version, x402scheme, network) {
     const payload = JSON.stringify({
@@ -47,7 +43,6 @@ function App() {
   const [directorOpen, setDirectorOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [tipMessage, setTipMessage] = useState('')
-  const [messages, setMessages] = useState([])
   const [loading, setLoading] = useState(false)
   const [directorRequestSuccessful, setDirectorRequestSuccessful] = useState(false)
   const [streamSettings, setStreamSettings] = useState({
@@ -62,7 +57,6 @@ function App() {
   // Fetch stream URL on component mount
   useEffect(() => {
     fetchStreamUrl()
-    fetchMessages()
   }, [])
 
   const fetchStreamUrl = async () => {
@@ -73,54 +67,6 @@ function App() {
       setStreamStatus('error')
     }
   }
-
-  const fetchMessages = async () => {
-    try {
-      const res = await fetch(`${API_BASE}/api/super/chat`)
-      if (!res.ok) {
-        // non-fatal: server may not have any messages yet
-        return
-      }
-
-      const data = await res.json().catch(() => null)
-      if (!data) return
-
-      // Server may return either a single message object `{ msg, level, ... }`
-      // or an array of messages. Append new messages while avoiding simple duplicates.
-      setMessages(prev => {
-        const out = Array.isArray(prev) ? [...prev] : []
-
-        const pushIfNew = (m) => {
-          if (!m) return
-          const last = out.length ? out[out.length - 1] : null
-          // Basic duplicate check: compare msg text and level
-          if (last && last.msg === m.msg && last.level === m.level) return
-          out.push(m)
-        }
-
-        if (Array.isArray(data)) {
-          data.forEach(pushIfNew)
-        } else if (data.msg) {
-          pushIfNew(data)
-        }
-
-        // Only update if the messages actually changed
-        if (JSON.stringify(out) === JSON.stringify(prev)) {
-          return prev
-        }
-
-        return out
-      })
-    } catch (error) {
-      console.error('Failed to fetch messages:', error)
-    }
-  }
-
-  // Poll for new messages every 5 seconds
-  // useEffect(() => {
-  //   const interval = setInterval(fetchMessages, 5000)
-  //   return () => clearInterval(interval)
-  // }, [])
 
   const handleTip = async (amount, message = '') => {
     console.log('handleTip called with amount:', amount, 'message:', message, 'walletConnected:', wallet.connected)
@@ -443,24 +389,7 @@ function App() {
           )}
         </div>
         {/* Super Chat Ticker - moved inside video-container to match width */}
-        <div className="super-chat-ticker glass">
-          <div className="ticker-content">
-            {messages.length > 0 ? (
-              <div className="ticker-messages">
-                {messages.map((msg, index) => (
-                  <span key={index} className="ticker-message">
-                    <span className="ticker-level">Level {msg.level}</span>
-                    <span className="ticker-text">{msg.msg}</span>
-                  </span>
-                ))}
-              </div>
-            ) : (
-              <div className="ticker-placeholder">
-                <span className="ticker-text">No messages yet...</span>
-              </div>
-            )}
-          </div>
-        </div>
+        <SuperChat />
 
       </div>
 
