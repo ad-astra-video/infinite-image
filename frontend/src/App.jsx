@@ -12,10 +12,35 @@ import {
   Send,
   Loader2
 } from 'lucide-react'
+import { useWallet } from './components/WalletConnect'
 
 const API_BASE = ''
 
 function App() {
+  // Use centralized wallet hook - single source of truth for all wallet data
+  const wallet = useWallet()
+
+  // Debug logging for context changes
+  useEffect(() => {
+    console.log('App: walletConnected context changed:', wallet.connected, 'at', new Date().toISOString())
+  }, [wallet.connected])
+
+  function buildXPaymentHeader(authorization, signature, x402version, x402scheme, network) {
+    const payload = JSON.stringify({
+      "x402_version": x402version,
+      "scheme": x402scheme,
+      "network": network,
+      "payload": {
+        "signature": signature,
+        "authorization": authorization
+      }
+    }
+  )
+
+    return btoa(unescape(encodeURIComponent(payload)))
+  }
+
+
   const [streamUrl, setStreamUrl] = useState(null)
   const [streamStatus, setStreamStatus] = useState('loading')
   const [tipJarOpen, setTipJarOpen] = useState(false)
@@ -42,15 +67,7 @@ function App() {
 
   const fetchStreamUrl = async () => {
     try {
-      const response = await fetch(`${API_BASE}/stream/url`)
-      const data = await response.json()
-      
-      if (data.stream.status === 'running' && data.stream.whep_url) {
-        setStreamUrl(data.stream.whep_url)
-        setStreamStatus('running')
-      } else {
-        setStreamStatus('not_running')
-      }
+      setStreamStatus('not_running')
     } catch (error) {
       console.error('Failed to fetch stream URL:', error)
       setStreamStatus('error')
@@ -59,41 +76,107 @@ function App() {
 
   const fetchMessages = async () => {
     try {
-      const response = await fetch(`${API_BASE}/api/super/chat`)
-      const data = await response.json()
-      if (data.msg) {
-        setMessages(prev => [...prev, data.msg])
+      const res = await fetch(`${API_BASE}/api/super/chat`)
+      if (!res.ok) {
+        // non-fatal: server may not have any messages yet
+        return
       }
+
+      const data = await res.json().catch(() => null)
+      if (!data) return
+
+      // Server may return either a single message object `{ msg, level, ... }`
+      // or an array of messages. Append new messages while avoiding simple duplicates.
+      setMessages(prev => {
+        const out = Array.isArray(prev) ? [...prev] : []
+
+        const pushIfNew = (m) => {
+          if (!m) return
+          const last = out.length ? out[out.length - 1] : null
+          // Basic duplicate check: compare msg text and level
+          if (last && last.msg === m.msg && last.level === m.level) return
+          out.push(m)
+        }
+
+        if (Array.isArray(data)) {
+          data.forEach(pushIfNew)
+        } else if (data.msg) {
+          pushIfNew(data)
+        }
+
+        // Only update if the messages actually changed
+        if (JSON.stringify(out) === JSON.stringify(prev)) {
+          return prev
+        }
+
+        return out
+      })
     } catch (error) {
       console.error('Failed to fetch messages:', error)
     }
   }
 
   // Poll for new messages every 5 seconds
-  useEffect(() => {
-    const interval = setInterval(fetchMessages, 5000)
-    return () => clearInterval(interval)
-  }, [])
+  // useEffect(() => {
+  //   const interval = setInterval(fetchMessages, 5000)
+  //   return () => clearInterval(interval)
+  // }, [])
 
-  const handleTip = async (amount) => {
+  const handleTip = async (amount, message = '') => {
+    console.log('handleTip called with amount:', amount, 'message:', message, 'walletConnected:', wallet.connected)
     setLoading(true)
+    
+    if (!wallet.connected) {
+      console.error('handleTip: Wallet not connected according to context')
+      setLoading(false)
+      return
+    }
+    
     try {
       const response = await fetch(`${API_BASE}/api/tip/${amount}`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
+          'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-          msg: tipMessage || `Tip of $${(amount * 0.01).toFixed(2)}`
-        })
+        body: JSON.stringify({ msg: message })
       })
-      
-      if (response.ok) {
-        setTipMessage('')
-        setTipJarOpen(false)
-        // Show success feedback
-        setMessages(prev => [...prev, { msg: `Tip sent: $${(amount * 0.01).toFixed(2)}`, level: amount }])
+
+      // If the server requires a payment challenge, it may return 402 with typed-data
+      if (response.status === 402) {
+        // Attempt to parse typed-data challenge from the response body
+        const paymentRequirements = await response.json().catch(() => null)
+        if (!paymentRequirements) throw new Error('Payment required but no challenge provided')
+
+        // Sign and build X-PAYMENT header, then retry
+        try {
+          const { authorization, signature, x402version, x402scheme, network } = await wallet.signX402(paymentRequirements)
+          const paymentHeader = buildXPaymentHeader(authorization, signature, x402version, x402scheme, network)
+
+          const retry = await fetch(`${API_BASE}/api/tip/${amount}`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-PAYMENT': paymentHeader,
+            },
+            body: JSON.stringify({ msg: message }),
+          })
+
+          if (!retry.ok) {
+            const errText = await retry.text().catch(() => retry.statusText)
+            throw new Error(errText || `HTTP ${retry.status}`)
+          }
+        } catch (signErr) {
+          throw signErr
+        }
+      } else {
+        if (!response.ok) {
+          const errText = await response.text().catch(() => response.statusText)
+          throw new Error(errText || `HTTP ${response.status}`)
+        }
       }
+
+      setTipMessage('')
+      setTipJarOpen(false)
     } catch (error) {
       console.error('Failed to send tip:', error)
     }
@@ -101,25 +184,57 @@ function App() {
   }
 
   const handleDirector = async (amount) => {
+    console.log('handleDirector called with amount:', amount, 'walletConnected:', wallet.connected)
     setLoading(true)
+    
+    if (!wallet.connected) {
+      console.error('handleDirector: Wallet not connected according to context')
+      setLoading(false)
+      return
+    }
+    
     try {
       const response = await fetch(`${API_BASE}/api/stream/director/${amount}`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
+          'Content-Type': 'application/json'
         },
-        body: JSON.stringify(streamSettings)
       })
-      
-      if (response.ok) {
-        const data = await response.json()
-        setDirectorOpen(false)
-        setDirectorRequestSuccessful(true)
-        setMessages(prev => [...prev, {
-          msg: `Director control activated: $${amount}.00`,
-          level: amount
-        }])
+
+      if (response.status === 402) {
+        const paymentRequirements = await response.json().catch(() => null)
+        if (!paymentRequirements) throw new Error('Payment required but no challenge provided')
+
+        try {
+          const { authorization, signature, x402version, x402scheme, network } = await wallet.signX402(paymentRequirements)
+          const paymentHeader = buildXPaymentHeader(authorization, signature, x402version, x402scheme, network)
+
+          const retry = await fetch(`${API_BASE}/api/stream/director/${amount}`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-PAYMENT': paymentHeader,
+            },
+            body: JSON.stringify({ settings: streamSettings }),
+          })
+
+          if (!retry.ok) {
+            const errText = await retry.text().catch(() => retry.statusText)
+            throw new Error(errText || `HTTP ${retry.status}`)
+          }
+        } catch (signErr) {
+          throw signErr
+        }
+      } else {
+        if (!response.ok) {
+          const errText = await response.text().catch(() => response.statusText)
+          throw new Error(errText || `HTTP ${response.status}`)
+        }
       }
+
+      setDirectorOpen(false)
+      setDirectorRequestSuccessful(true)
+      
     } catch (error) {
       console.error('Failed to send director request:', error)
     }
@@ -237,22 +352,25 @@ function App() {
                   <div className="tip-buttons">
                     <button
                       className="btn btn-secondary"
-                      onClick={() => handleTip(1)}
-                      disabled={loading}
+                      onClick={() => handleTip(1, tipMessage)}
+                      disabled={loading || !wallet.connected}
+                      title={!wallet.connected ? 'Connect wallet first' : ''}
                     >
                       ${(1 * 0.01).toFixed(2)}
                     </button>
                     <button
                       className="btn btn-secondary"
-                      onClick={() => handleTip(5)}
-                      disabled={loading}
+                      onClick={() => handleTip(5, tipMessage)}
+                      disabled={loading || !wallet.connected}
+                      title={!wallet.connected ? 'Connect wallet first' : ''}
                     >
                       ${(5 * 0.01).toFixed(2)}
                     </button>
                     <button
                       className="btn btn-secondary"
-                      onClick={() => handleTip(10)}
-                      disabled={loading}
+                      onClick={() => handleTip(10, tipMessage)}
+                      disabled={loading || !wallet.connected}
+                      title={!wallet.connected ? 'Connect wallet first' : ''}
                     >
                       ${(10 * 0.01).toFixed(2)}
                     </button>
@@ -285,21 +403,24 @@ function App() {
                     <button
                       className="btn btn-secondary"
                       onClick={() => handleDirector(1)}
-                      disabled={loading}
+                      disabled={loading || !wallet.connected}
+                      title={!wallet.connected ? 'Connect wallet first' : ''}
                     >
                       ${(1).toFixed(2)}
                     </button>
                     <button
                       className="btn btn-secondary"
                       onClick={() => handleDirector(5)}
-                      disabled={loading}
+                      disabled={loading || !wallet.connected}
+                      title={!wallet.connected ? 'Connect wallet first' : ''}
                     >
                       ${(5).toFixed(2)}
                     </button>
                     <button
                       className="btn btn-secondary"
                       onClick={() => handleDirector(10)}
-                      disabled={loading}
+                      disabled={loading || !wallet.connected}
+                      title={!wallet.connected ? 'Connect wallet first' : ''}
                     >
                       ${(10).toFixed(2)}
                     </button>

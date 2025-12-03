@@ -1,41 +1,119 @@
-import React, { useEffect, createContext, useContext, useMemo, useRef } from 'react'
+import React, { useState, useEffect, createContext, useContext, useMemo, useRef } from 'react'
 import { ConnectButton } from '@rainbow-me/rainbowkit'
 import { useAccount, useBalance, useContractRead, useSignTypedData } from 'wagmi'
 import { Wallet, CheckCircle, AlertTriangle, DollarSign, X } from 'lucide-react'
 import { buildX402TypedData } from '../utils/x402'
 
-// Comprehensive Wallet Context - Single source of truth for all wallet data
-const WalletContext = createContext({
-  // Account data
-  address: null,
-  isConnected: false,
-  chain: null,
-
-  // Balance data
-  usdcBalance: '0.00',
-  usdcBalanceLoading: false,
-  usdcBalanceError: null,
-
-  // Signing functionality
-  signX402: async () => {},
-
-  // Connection state
-  connected: false,
-
-  // Loading states
-  isLoading: false,
-})
-
-// Legacy X402Signer context for backward compatibility
 const X402SignerContext = createContext({ sign: async () => {}, connected: false })
 
-// New comprehensive Wallet Provider - Centralizes all wallet functionality
-export function WalletProvider({ children }) {
-  const { address, isConnected, chain } = useAccount()
+export function X402SignerProvider({ children }) {
+  const { data: account, isConnected } = useAccount()
   const { signTypedDataAsync } = useSignTypedData()
-  const accountRef = useRef({ address, isConnected, chain })
+  const accountRef = useRef(account)
 
-    // USDC contract configuration
+  // Update the ref whenever account changes
+  useEffect(() => {
+    accountRef.current = account
+  }, [account])
+
+  // More robust connection check - handle timing issues
+  // Primary check: isConnected (this works reliably)
+  // Secondary check: account data (may have timing issues)
+  const hasAccountData = account && account.address
+  // Trust isConnected for connection status, account will be available when needed
+  const connected = !!isConnected
+
+  // Debug logging for connection state changes
+  useEffect(() => {
+    console.log('X402SignerProvider connection state changed:', {
+      connected,
+      account: account?.address,
+      isConnected,
+      hasAccount: !!account,
+      hasAccountData,
+      timestamp: new Date().toISOString()
+    })
+  }, [connected, account?.address, isConnected, hasAccountData])
+
+  // Memoize the context value to prevent unnecessary re-renders
+  const contextValue = useMemo(() => ({
+    sign: async (acceptBody) => {
+      console.log('X402SignerProvider sign called:', {
+        connected,
+        account: account?.address,
+        isConnected,
+        hasSignTypedDataAsync: !!signTypedDataAsync,
+        hasAccount: !!account,
+        hasAccountData
+      })
+
+      // Enhanced connection check - handle timing issues
+      if (!isConnected) {
+        console.error('Wallet not connected - isConnected is false')
+        throw new Error('Wallet not connected')
+      }
+
+      // Use the latest account data from the ref
+      let currentAccount = accountRef.current
+      if (!currentAccount?.address) {
+        console.log('Account data missing, waiting for it to become available...')
+        // Wait up to 3 seconds for account data to become available
+        for (let i = 0; i < 30; i++) {
+          await new Promise(resolve => setTimeout(resolve, 100))
+          // Check the ref again
+          currentAccount = accountRef.current
+          if (currentAccount?.address) {
+            console.log('Account data became available after waiting')
+            break
+          }
+        }
+      }
+
+      // Final check - if we still don't have account data, throw error
+      if (!currentAccount?.address) {
+        console.error('Account data still missing after waiting - wallet connection failed')
+        throw new Error('Wallet account data not available. Please reconnect your wallet.')
+      }
+
+      const typedData = buildX402TypedData(acceptBody)
+      const signature = await signTypedDataAsync({
+        domain: typedData.domain,
+        types: typedData.types,
+        value: typedData.message,
+        primaryType: typedData.primaryType,
+      })
+      return { typedData, signature, address: currentAccount.address }
+    },
+    connected
+  }), [connected, account?.address, signTypedDataAsync, hasAccountData, isConnected, account])
+
+  return (
+    <X402SignerContext.Provider value={contextValue}>
+      {children}
+    </X402SignerContext.Provider>
+  )
+}export function useX402Signer() {
+  const context = useContext(X402SignerContext)
+  console.log('useX402Signer called, returning:', { 
+    connected: context.connected,
+    hasSignFunction: typeof context.sign === 'function'
+  })
+  return context
+}
+
+function WalletConnect() {
+  const { address, isConnected } = useAccount()
+  
+  // Debug: Log raw wallet state
+  useEffect(() => {
+    console.log('WalletConnect component - raw wallet state:', {
+      address,
+      isConnected,
+      timestamp: new Date().toISOString()
+    })
+  }, [address, isConnected])
+  
+  // USDC contract configuration
   const USDC_CONTRACT_ADDRESS = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
   const USDC_ABI = [
     {
@@ -51,7 +129,7 @@ export function WalletProvider({ children }) {
       "type": "function"
     }
   ]
-
+  
   // Read USDC balance from contract
   const { data: usdcBalanceWei, isLoading: usdcLoading, isError: usdcError } = useContractRead({
     address: USDC_CONTRACT_ADDRESS,
@@ -60,7 +138,7 @@ export function WalletProvider({ children }) {
     args: [address],
     enabled: isConnected && !!address,
   })
-
+  
   // Format balance from wei to USD
   const formatUsdcBalance = (balanceWei) => {
     if (!balanceWei) return '0.00'
@@ -75,154 +153,13 @@ export function WalletProvider({ children }) {
       return '0.00'
     }
   }
-
-  const usdcBalance = useMemo(() => {
+  
+  const [usdcBalance, setUsdcBalance] = useState(null)
+  useEffect(() => {
     if (isConnected && address) {
-      return formatUsdcBalance(usdcBalanceWei)
-    } else {
-      return '0.00'
+      setUsdcBalance(formatUsdcBalance(usdcBalanceWei))
     }
   }, [isConnected, address, usdcBalanceWei])
-
-  // Update account ref whenever account data changes
-  useEffect(() => {
-    accountRef.current = { address, isConnected, chain }
-  }, [address, isConnected, chain])
-
-  // Connection state - trust isConnected as primary indicator
-  const connected = !!isConnected
-
-  // Debug logging for connection state changes
-  useEffect(() => {
-    console.log('WalletProvider connection state changed:', {
-      connected,
-      address,
-      isConnected,
-      chain: chain ? { id: chain.id, name: chain.name, network: chain.network } : undefined,
-      usdcBalance,
-      timestamp: new Date().toISOString()
-    })
-  }, [connected, address, isConnected, chain, usdcBalance])
-
-  // X402 signing function with robust account data handling
-  const signX402 = useMemo(() => async (paymentRequirements) => {
-    console.log('WalletProvider signX402 called:', {
-      connected,
-      address,
-      isConnected,
-      hasSignTypedDataAsync: !!signTypedDataAsync
-    })
-
-    // Enhanced connection check
-    if (!isConnected) {
-      console.error('Wallet not connected - isConnected is false')
-      throw new Error('Wallet not connected')
-    }
-
-    // Ensure we have account data for signing
-    let currentAccount = accountRef.current
-    if (!currentAccount?.address) {
-      console.log('Account data missing, waiting for it to become available...')
-      // Wait up to 3 seconds for account data to become available
-      for (let i = 0; i < 30; i++) {
-        await new Promise(resolve => setTimeout(resolve, 100))
-        currentAccount = accountRef.current
-        if (currentAccount?.address) {
-          console.log('Account data became available after waiting')
-          break
-        }
-      }
-    }
-
-    // Final check - if we still don't have account data, throw error
-    if (!currentAccount?.address) {
-      console.error('Account data still missing after waiting - wallet connection failed')
-      throw new Error('Wallet account data not available. Please reconnect your wallet.')
-    }
-
-    const payReq = paymentRequirements.accepts[0];
-    const typedData = buildX402TypedData(payReq, currentAccount.address)
-    const signature = await signTypedDataAsync(typedData)
-
-    return { authorization: typedData.message, signature: signature, x402version: paymentRequirements.x402version || 1, x402scheme: payReq.scheme || 'exact', network: payReq.network || 'base-sepolia' }
-  }, [isConnected, signTypedDataAsync])
-
-  // Context value - comprehensive wallet state
-  const contextValue = useMemo(() => ({
-    // Account data
-    address,
-    isConnected,
-    chain,
-
-    // Balance data
-    usdcBalance,
-    usdcBalanceLoading: usdcLoading,
-    usdcBalanceError: usdcError,
-
-    // Signing functionality
-    signX402,
-
-    // Connection state
-    connected,
-
-    // Loading states
-    isLoading: usdcLoading,
-  }), [
-    address,
-    isConnected,
-    chain,
-    usdcBalance,
-    usdcLoading,
-    usdcError,
-    signX402,
-    connected
-  ])
-
-  return (
-    <WalletContext.Provider value={contextValue}>
-      {children}
-    </WalletContext.Provider>
-  )
-}
-
-// Hook to use the comprehensive wallet context
-export function useWallet() {
-  const context = useContext(WalletContext)
-  if (!context) {
-    throw new Error('useWallet must be used within a WalletProvider')
-  }
-  return context
-}
-
-// Legacy X402SignerProvider for backward compatibility
-export function X402SignerProvider({ children }) {
-  const wallet = useWallet()
-
-  const legacyContextValue = useMemo(() => ({
-    sign: wallet.signX402,
-    connected: wallet.connected,
-  }), [wallet.signX402, wallet.connected])
-
-  return (
-    <X402SignerContext.Provider value={legacyContextValue}>
-      {children}
-    </X402SignerContext.Provider>
-  )
-}
-
-// Legacy hook for backward compatibility
-export function useX402Signer() {
-  const context = useContext(X402SignerContext)
-  console.log('useX402Signer called, returning:', {
-    connected: context.connected,
-    hasSignFunction: typeof context.sign === 'function'
-  })
-  return context
-}
-
-// WalletConnect component - now uses the centralized wallet context
-function WalletConnect() {
-  const wallet = useWallet()
 
   const shortenAddress = (addr) => {
     if (!addr) return ''
@@ -242,7 +179,7 @@ function WalletConnect() {
           mounted,
         }) => {
           const ready = mounted && authenticationStatus !== 'loading'
-          const connected = wallet.isConnected && account && chain
+          const connected = isConnected && account && chain
 
           return (
             <div
@@ -260,10 +197,10 @@ function WalletConnect() {
               <div className="wallet-balance-left" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <DollarSign size={18} style={{ color: '#3B82F6' }} />
                 <span style={{ fontSize: '14px', fontWeight: '500', color: 'var(--text-primary)' }}>
-                  ${wallet.usdcBalanceLoading ? '...' : wallet.usdcBalance}
+                  ${usdcLoading ? '...' : (usdcBalance || '0.00')}
                 </span>
                 <div className="error-icon" style={{ position: 'relative' }}>
-                  {(wallet.usdcBalanceError || (wallet.isConnected && !wallet.usdcBalance)) && (
+                  {(usdcError || (isConnected && !usdcBalanceWei)) && (
                     <AlertTriangle
                       size={16}
                       style={{ color: '#EF4444', cursor: 'pointer' }}
@@ -293,7 +230,7 @@ function WalletConnect() {
                     pointerEvents: 'none',
                     transition: 'opacity 0.3s ease'
                   }}>
-                    {wallet.usdcBalanceError ? 'Unable to read USDC balance' : 'No payments possible, need ETH in wallet on Base chain'}
+                    {usdcError ? 'Unable to read USDC balance' : 'No payments possible, need ETH in wallet on Base chain'}
                   </div>
                 </div>
               </div>

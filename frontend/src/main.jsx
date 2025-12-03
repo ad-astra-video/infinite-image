@@ -1,6 +1,7 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
+import { WalletProvider } from './components/WalletConnect'
 import ErrorBoundary from './components/ErrorBoundary'
 import './index.css'
 import '@rainbow-me/rainbowkit/styles.css'
@@ -47,9 +48,11 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     <WagmiConfig config={wagmiConfig}>
       <QueryClientProvider client={queryClient}>
         <RainbowKitProvider chains={chains}>
-          <ErrorBoundary>
-            <App />
-          </ErrorBoundary>
+          <WalletProvider>
+            <ErrorBoundary>
+              <App />
+            </ErrorBoundary>
+          </WalletProvider>
         </RainbowKitProvider>
       </QueryClientProvider>
     </WagmiConfig>
