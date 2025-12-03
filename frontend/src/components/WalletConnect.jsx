@@ -1,33 +1,17 @@
-import React, { useEffect, createContext, useContext, useMemo, useRef } from 'react'
+import React, { useEffect, createContext, useContext, useMemo, useRef, useCallback } from 'react'
 import { ConnectButton } from '@rainbow-me/rainbowkit'
 import { useAccount, useBalance, useContractRead, useSignTypedData } from 'wagmi'
 import { Wallet, CheckCircle, AlertTriangle, DollarSign, X } from 'lucide-react'
 import { buildX402TypedData } from '../utils/x402'
 
-// Comprehensive Wallet Context - Single source of truth for all wallet data
-const WalletContext = createContext({
-  // Account data
-  address: null,
-  isConnected: false,
-  chain: null,
-
-  // Balance data
-  usdcBalance: '0.00',
-  usdcBalanceLoading: false,
-  usdcBalanceError: null,
-
-  // Signing functionality
-  signX402: async () => {},
-
-  // Connection state
-  connected: false,
-
-  // Loading states
-  isLoading: false,
-})
+// Comprehensive Wallet Context - single source of truth for all wallet data
+// Default to `null` so using the hook outside a provider throws early and
+// surfaces provider-misuse bugs (common cause of render loops).
+const WalletContext = createContext(null)
 
 // Legacy X402Signer context for backward compatibility
-const X402SignerContext = createContext({ sign: async () => {}, connected: false })
+// Use `null` default so missing provider is detected by the hook.
+const X402SignerContext = createContext(null)
 
 // New comprehensive Wallet Provider - Centralizes all wallet functionality
 export function WalletProvider({ children }) {
@@ -53,7 +37,7 @@ export function WalletProvider({ children }) {
   ]
 
   // Read USDC balance from contract
-  const { data: usdcBalanceWei, isLoading: usdcLoading, isError: usdcError } = useContractRead({
+  const { data: usdcBalanceWei, isLoading: usdcLoading, isError: usdcError, refetch: refetchUsdc } = useContractRead({
     address: USDC_CONTRACT_ADDRESS,
     abi: USDC_ABI,
     functionName: 'balanceOf',
@@ -139,6 +123,9 @@ export function WalletProvider({ children }) {
     // Signing functionality
     signX402,
 
+    // Manual refetch hook for USDC balance
+    refetchUsdc,
+
     // Connection state
     connected,
 
@@ -152,7 +139,8 @@ export function WalletProvider({ children }) {
     usdcLoading,
     usdcError,
     signX402,
-    connected
+    connected,
+    refetchUsdc
   ])
 
   return (
@@ -165,7 +153,7 @@ export function WalletProvider({ children }) {
 // Hook to use the comprehensive wallet context
 export function useWallet() {
   const context = useContext(WalletContext)
-  if (!context) {
+  if (context === null) {
     throw new Error('useWallet must be used within a WalletProvider')
   }
   return context
@@ -190,6 +178,9 @@ export function X402SignerProvider({ children }) {
 // Legacy hook for backward compatibility
 export function useX402Signer() {
   const context = useContext(X402SignerContext)
+  if (context === null) {
+    throw new Error('useX402Signer must be used within an X402SignerProvider')
+  }
   return context
 }
 

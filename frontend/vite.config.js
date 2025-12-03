@@ -14,8 +14,6 @@ export default defineConfig({
     minify: false,
   },
   define: {
-    'process.env': {
-      API_BASE: "http://localhost:8000"
-    }
+    'process.env': {}
   }
 })

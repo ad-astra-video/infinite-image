@@ -366,6 +366,43 @@
   color: var(--text-primary);
 }
 
+/* Tier styling for super chat messages */
+.tier-bronze {
+  color: #b87333; /* bronze */
+}
+.tier-silver {
+  color: #c0c0c0; /* silver */
+}
+.tier-gold {
+  color: #ffd700; /* gold */
+  font-weight: 700;
+  text-shadow: 0 1px 0 rgba(0,0,0,0.2);
+}
+
+/* Ensure tier colors apply to the visible text inside the message (overrides .ticker-text) */
+.ticker-message.tier-bronze {
+  background: rgba(184, 115, 51, 0.12);
+  border: 1px solid rgba(184, 115, 51, 0.22);
+}
+.ticker-message.tier-silver {
+  background: rgba(192, 192, 192, 0.12);
+  border: 1px solid rgba(160, 160, 160, 0.22);
+}
+.ticker-message.tier-gold {
+  background: rgba(255, 215, 0, 0.12);
+  border: 1px solid rgba(255, 200, 0, 0.25);
+}
+
+/* Keep visible text black for good contrast */
+.ticker-message.tier-bronze .ticker-text,
+.ticker-message.tier-silver .ticker-text,
+.ticker-message.tier-gold .ticker-text {
+  color: #000000;
+}
+.ticker-message.tier-gold .ticker-text {
+  font-weight: 700;
+}
+
 .ticker-placeholder {
   display: flex;
   align-items: center;

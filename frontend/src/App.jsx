@@ -79,12 +79,12 @@ function App() {
     }
     
     try {
-      const response = await fetch(`${API_BASE}/api/tip/${amount}`, {
+      const response = await fetch(`http://localhost:8000/api/tip/${amount}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ msg: message })
+        body: { msg: message }
       })
 
       // If the server requires a payment challenge, it may return 402 with typed-data
@@ -123,6 +123,14 @@ function App() {
 
       setTipMessage('')
       setTipJarOpen(false)
+      // Refresh USDC balance after a successful tip (wait briefly for network propagation)
+      try {
+        // small delay to allow the payment/facilitator and RPC to reflect the new balance
+        await new Promise(resolve => setTimeout(resolve, 3000))
+        if (wallet?.refetchUsdc) await wallet.refetchUsdc()
+      } catch (e) {
+        console.warn('Failed to refetch USDC balance after tip', e)
+      }
     } catch (error) {
       console.error('Failed to send tip:', error)
     }
@@ -180,6 +188,13 @@ function App() {
 
       setDirectorOpen(false)
       setDirectorRequestSuccessful(true)
+      // Refresh USDC balance after director request succeeds (allow brief propagation)
+      try {
+        await new Promise(resolve => setTimeout(resolve, 3000))
+        if (wallet?.refetchUsdc) await wallet.refetchUsdc()
+      } catch (e) {
+        console.warn('Failed to refetch USDC balance after director request', e)
+      }
       
     } catch (error) {
       console.error('Failed to send director request:', error)
@@ -244,7 +259,7 @@ function App() {
           {streamStatus === 'error' && (
             <div className="error-state glass">
               <p>Connection error</p>
-              <button onClick={fetchStreamUrl} className="btn btn-primary">
+              <button onClick={() => fetchStreamUrl()} className="btn btn-primary">
                 Retry
               </button>
             </div>
