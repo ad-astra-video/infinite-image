@@ -93,30 +93,20 @@ export function WalletProvider({ children }) {
   const connected = !!isConnected
 
   // X402 signing function with robust account data handling
-  const signX402 = useMemo(() => async (paymentRequirements) => {
-    console.log('WalletProvider signX402 called:', {
-      connected,
-      address,
-      isConnected,
-      hasSignTypedDataAsync: !!signTypedDataAsync
-    })
-
+  const signX402 = useCallback(async (paymentRequirements) => {
     // Enhanced connection check
     if (!isConnected) {
-      console.error('Wallet not connected - isConnected is false')
       throw new Error('Wallet not connected')
     }
 
     // Ensure we have account data for signing
     let currentAccount = accountRef.current
     if (!currentAccount?.address) {
-      console.log('Account data missing, waiting for it to become available...')
       // Wait up to 3 seconds for account data to become available
       for (let i = 0; i < 30; i++) {
         await new Promise(resolve => setTimeout(resolve, 100))
         currentAccount = accountRef.current
         if (currentAccount?.address) {
-          console.log('Account data became available after waiting')
           break
         }
       }
@@ -124,11 +114,10 @@ export function WalletProvider({ children }) {
 
     // Final check - if we still don't have account data, throw error
     if (!currentAccount?.address) {
-      console.error('Account data still missing after waiting - wallet connection failed')
       throw new Error('Wallet account data not available. Please reconnect your wallet.')
     }
 
-    const payReq = paymentRequirements.accepts[0];
+    const payReq = paymentRequirements.accepts[0]
     const typedData = buildX402TypedData(payReq, currentAccount.address)
     const signature = await signTypedDataAsync(typedData)
 
@@ -201,10 +190,6 @@ export function X402SignerProvider({ children }) {
 // Legacy hook for backward compatibility
 export function useX402Signer() {
   const context = useContext(X402SignerContext)
-  console.log('useX402Signer called, returning:', {
-    connected: context.connected,
-    hasSignFunction: typeof context.sign === 'function'
-  })
   return context
 }
 
