@@ -8,6 +8,7 @@ A Node.js Express server that replicates the functionality of the original Pytho
 - **Payment Integration**: x402 payment middleware for paid endpoints
 - **Web3 Integration**: Automatic USDC sweeping from deposit address
 - **Chat System**: Super chat functionality with expiration
+- **XMTP Messages Proxy**: Proxy requests to XMTP messages service
 - **Static File Serving**: Serves frontend assets and HTML
 - **Security**: Rate limiting, CORS, and security headers
 
@@ -27,7 +28,12 @@ A Node.js Express server that replicates the functionality of the original Pytho
 - `POST /api/stream/payment/sent` - Confirm payment received
 
 ### Chat System
-- `GET /api/super/chat` - Get active super chats
+- `GET /api/supporter/chat` - Get active supporter chats
+
+### XMTP Messages Proxy
+- All `/api/messages/*` requests are proxied to the XMTP messages service running on port 3001
+- Includes initialization, sending, broadcasting, and conversation management
+- See [XMTP Messages Service Documentation](../messages/README.md) for detailed API reference
 
 ### Utility
 - `GET /health` - Health check endpoint
@@ -77,7 +83,9 @@ A Node.js Express server that replicates the functionality of the original Pytho
 | `MUXION_GATEWAY_API_KEY` | API key for Muxion streaming service | Yes |
 | `FACILITATOR_URL` | x402 payment facilitator URL | Yes |
 | `BASE_RPC_URL` | Base network RPC endpoint | Yes |
+| `NETWORK` | Network to use (base or base-sepolia) | No (default: base-sepolia) |
 | `SWEEP_ADDRESS` | Address to sweep USDC funds to | Yes |
+| `MESSAGES_SERVICE_URL` | URL of XMTP messages service (default: http://localhost:3001) | No |
 
 ### Wallet Management
 
@@ -92,7 +100,9 @@ The server includes automatic USDC sweeping functionality:
 - Runs every minute
 - Transfers USDC from deposit address to sweep address
 - Only transfers if balance exceeds 1 USDC threshold
-- Uses Base network USDC contract: `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`
+- Uses the correct USDC contract address based on the configured network:
+  - Base mainnet: `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`
+  - Base Sepolia testnet: `0x75f89a12e8f9d5a260a8c076e9e0c5d16ba679e`
 
 ## API Usage Examples
 

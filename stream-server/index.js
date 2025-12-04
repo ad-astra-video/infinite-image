@@ -1,6 +1,10 @@
+// Load environment variables first
+const dotenv = require('dotenv');
+dotenv.config();
+
+// Import all required modules
 const express = require('express');
 const cors = require('cors');
-const dotenv = require('dotenv');
 const { Web3 } = require('web3');
 const { ethers } = require('ethers');
 const axios = require('axios');
@@ -10,51 +14,15 @@ const path = require('path');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 
-// Load environment variables
-dotenv.config();
-
-const app = express();
-const PORT = 4021;
-
-// Middleware
-app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      connectSrc: ["'self'", "https://mainnet.base.org", "https://explorer-api.walletconnect.com", "wss://relay.walletconnect.com", "wss://relay.walletconnect.org"],
-      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-      imgSrc: ["'self'", "data:", "https:"],
-      fontSrc: ["'self'"],
-      objectSrc: ["'none'"],
-      mediaSrc: ["'self'"],
-      frameSrc: ["'self'", "https://verify.walletconnect.com", "https://verify.walletconnect.org"],
-    },
-  },
-}));
-app.use(cors({
-  origin: ["http://localhost:3000"],
-  credentials: false,
-  methods: ["*"],
-  allowedHeaders: ["*"]
-}));
-app.use(express.json());
-
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 1000, // limit each IP to 1000 requests per windowMs
-});
-app.use(limiter);
-
-// Logging
+// Create logger first
 const logger = {
   info: (...args) => console.log('[INFO]', ...args),
   error: (...args) => console.error('[ERROR]', ...args)
 };
 
 // Get configuration from environment
-const MUXION_API_KEY = process.env.MUXION_GATEWAY_API_KEY;
+const APP_NAME = process.env.APP_NAME || 'X402-Gateway';
+const GATEWAY_API_KEY= process.env.GATEWAY_API_KEY;
 const GATEWAY_URL = process.env.GATEWAY_URL || "https://gateway.muxion.video";
 const FACILITATOR_URL = process.env.FACILITATOR_URL;
 const BASE_RPC_URL = process.env.BASE_RPC_URL;
@@ -67,34 +35,10 @@ if (!BASE_RPC_URL) {
 const w3 = new Web3(BASE_RPC_URL);
 const provider = new ethers.JsonRpcProvider(BASE_RPC_URL);
 const WALLET_FILE = "/wallet/eth_wallet.json";
+// USDC payment utilities
+const { createSweepTask } = require('./src/payment/usdc');
 
-// Global state
-let streamRunning = false;
-let streamId = null;
-let streamUrls = {};
-let streamControlIds = {};
-let nextControlStart = 0;
-let tipMsgs = [];
-
-// Models (equivalent to Pydantic models)
-class PromptRequest {
-  constructor(data) {
-    this.prompt = data.prompt;
-    this.seed = data.seed || 42;
-    this.steps = data.steps || 28;
-    this.guidanceScale = data.guidance_scale || 4.0;
-    this.referenceImages = data.reference_images || null;
-    this.controlId = data.control_id || null;
-  }
-}
-
-class TipRequest {
-  constructor(data) {
-    this.msg = data.msg;
-  }
-}
-
-// Load or create Ethereum wallet
+// Load or create Ethereum wallet first
 let depositAddress, depositPrivateKey;
 try {
   if (fs.existsSync(WALLET_FILE)) {
@@ -117,321 +61,195 @@ if (!depositAddress || !FACILITATOR_URL || !SWEEP_ADDRESS) {
   throw new Error("Missing required environment variables (DEPOSIT_ADDRESS, FACILITATOR_URL, SWEEP_ADDRESS)");
 }
 
-// USDC Contract ABI
-const USDC_ABI = [
-  {
-    "constant": true,
-    "inputs": [{"name": "account", "type": "address"}],
-    "name": "balanceOf",
-    "outputs": [{"name": "", "type": "uint256"}],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "constant": false,
-    "inputs": [
-      {"name": "to", "type": "address"},
-      {"name": "value", "type": "uint256"}
-    ],
-    "name": "transfer",
-    "outputs": [{"name": "", "type": "bool"}],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  }
-];
+const { paymentMiddleware } = require('x402-express');
+const { StreamRouter } = require('./src/routes/streamRoutes');
+const { DirectorRouter } = require('./src/routes/directorRoutes');
+const { ChatRouter } = require('./src/routes/chatRoutes');
 
-// USDC contract address on Base
-const USDC_CONTRACT_ADDRESS = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
+// Create chat router first for socket.io chat functionality
+const chatRouter = new ChatRouter({
+  logger,
+});
 
-// Background task: sweep USDC from DEPOSIT_ADDRESS to SWEEP_ADDRESS every minute
-async function sweepUsdc() {
-  try {
-    const usdcContract = new ethers.Contract(USDC_CONTRACT_ADDRESS, USDC_ABI, provider);
-    const balance = await usdcContract.balanceOf(depositAddress);
-    
-    if (balance <= 1000000n) { // 1 USDC (6 decimals)
-      logger.info(`USDC balance below threshold, skipping sweep. Balance: ${balance}`);
-      return;
-    }
-    
-    // Create wallet instance for signing
-    const wallet = new ethers.Wallet(depositPrivateKey, provider);
-    
-    // Build and send a signed ERC-20 transfer transaction
-    const tx = await usdcContract.connect(wallet).transfer(
-      SWEEP_ADDRESS,
-      balance
-    );
-    
-    logger.info(`Sent USDC transfer tx ${tx.hash}`);
-  } catch (error) {
-    logger.error(`USDC sweep failed: ${error.message}`);
-  }
-}
+// Create route instances
+const streamRouter = new StreamRouter({
+  logger,
+  depositAddress,
+  depositPrivateKey,
+  facilitatorUrl: FACILITATOR_URL,
+  network: process.env.NETWORK || "base-sepolia"
+});
 
-// Start background sweep task
-function startSweepTask() {
-  setInterval(sweepUsdc, 60000); // 1 minute
-  logger.info("USDC sweep task started");
-}
+// Create director router for director access and payment functionality
+const directorRouter = new DirectorRouter({
+  logger,
+  depositAddress,
+  depositPrivateKey,
+  facilitatorUrl: FACILITATOR_URL,
+  network: process.env.NETWORK || "base-sepolia"
+});
 
-// Payment middleware simulation (x402 equivalent)
-function requirePayment(options) {
-  return async (req, res, next) => {
-    try {
-      // In a real implementation, this would verify payment with x402
-      logger.info(`Payment required for ${options.path}, amount: ${options.price}`);
-      // For now, we'll just log and continue
-      next();
-    } catch (error) {
-      logger.error(`Payment verification failed: ${error.message}`);
-      res.status(402).json({ error: "Payment required" });
-    }
-  };
-}
+// Create the app and mount routes
+const app = express();
+const PORT = 4021;
 
-// Apply payment middleware to specific routes
-app.use('/api/tip/1', requirePayment({
-  path: "/api/tip/1",
-  price: "$0.01",
-  pay_to_address: depositAddress,
-  network: "base"
-}));
+// USDC contract addresses for different networks
+const NETWORK = process.env.NETWORK || "base-sepolia";
+const usdcAddresses = {
+  "base": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", // Base mainnet
+  "base-sepolia": "0x75f89a12e8f9d5a260a8c076e9e0c5d16ba679e" // Base Sepolia testnet
+};
+const usdcAddress = usdcAddresses[NETWORK] || usdcAddresses["base-sepolia"];
 
-app.use('/api/tip/5', requirePayment({
-  path: "/api/tip/5",
-  price: "$0.05",
-  pay_to_address: depositAddress,
-  network: "base"
-}));
-
-app.use('/api/tip/10', requirePayment({
-  path: "/api/tip/10",
-  price: "$0.10",
-  pay_to_address: depositAddress,
-  network: "base"
-}));
-
-app.use('/api/stream/director/1', requirePayment({
-  path: "/api/stream/director/1",
-  price: "$1.00",
-  pay_to_address: depositAddress,
-  network: "base"
-}));
-
-app.use('/api/stream/director/5', requirePayment({
-  path: "/api/stream/director/5",
-  price: "$5.00",
-  pay_to_address: depositAddress,
-  network: "base"
-}));
-
-app.use('/api/stream/director/10', requirePayment({
-  path: "/api/stream/director/10",
-  price: "$10.00",
-  pay_to_address: depositAddress,
-  network: "base"
-}));
-
-// Stream management functions
-async function startStream(req = null) {
-  try {
-    const startReq = JSON.parse(fs.readFileSync("start_request.json", 'utf8'));
-    const livepeerHdr = startReq.header;
-    livepeerHdr.request = JSON.stringify(startReq.request);
-    livepeerHdr.parameters = JSON.stringify(startReq.parameters);
-
-    const startResp = await axios.post(
-      `${GATEWAY_URL}/ai/stream/start`,
-      startReq.stream_request,
-      {
-        headers: {
-          "Livepeer": Buffer.from(JSON.stringify(livepeerHdr)).toString("base64"),
-          "Authorization": `Bearer ${MUXION_API_KEY}`
+// Configure x402 payment middleware for tip endpoints
+app.use(paymentMiddleware(
+    depositAddress,
+    {
+      "/api/tip/1": {
+        price: "$0.01",
+        network: NETWORK,
+        config: {
+          description: "Tip $0.01 USDC for level 1 super chat",
+          asset: {
+            address: usdcAddress,
+            decimals: 6,
+            eip712: {
+              name: "USD Coin",
+              version: "2"
+            }
+          }
+        }
+      },
+      "/api/tip/5": {
+        price: "$0.05",
+        network: NETWORK,
+        config: {
+          description: "Tip $0.05 USDC for level 5 super chat",
+          asset: {
+            address: usdcAddress,
+            decimals: 6,
+            eip712: {
+              name: "USD Coin",
+              version: "2"
+            }
+          }
+        }
+      },
+      "/api/tip/10": {
+        price: "$0.10",
+        network: NETWORK,
+        config: {
+          description: "Tip $0.10 USDC for level 10 super chat",
+          asset: {
+            address: usdcAddress,
+            decimals: 6,
+            eip712: {
+              name: "USD Coin",
+              version: "2"
+            }
+          }
+        }
+      },
+      "/api/tip/25": {
+        price: "$0.25",
+        network: NETWORK,
+        config: {
+          description: "Tip $0.25 USDC for level 25 super chat",
+          asset: {
+            address: usdcAddress,
+            decimals: 6,
+            eip712: {
+              name: "USD Coin",
+              version: "2"
+            }
+          }
         }
       }
-    );
-
-    if (startResp.status !== 200) {
-      logger.error(`Failed to start stream: ${startResp.status} ${startResp.data}`);
-      throw new Error("Failed to start stream");
+    },
+    {
+      url: FACILITATOR_URL
     }
+  )
+);
 
-    streamUrls = startResp.data;
-    streamId = streamUrls.stream_id;
-    streamRunning = true;
-    logger.info("Stream started");
-    
-    return {
-      stream: {
-        status: "running"
-      }
-    };
-  } catch (error) {
-    logger.error(`Start stream failed: ${error.message}`);
-    throw error;
+// Mount routes to the app
+app.use('/api/chat', chatRouter.getRouter());
+app.use('/api/stream', streamRouter.getRouter());
+app.use('/api/director', directorRouter.getRouter());
+
+logger.info('Routes mounted: /api/chat, /api/messages, /api/stream, /api/tip, /api/director');
+
+// Middleware
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      connectSrc: ["'self'", "https://mainnet.base.org", "https://explorer-api.walletconnect.com", "wss://relay.walletconnect.com", "wss://relay.walletconnect.org"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:", "https:"],
+      fontSrc: ["'self'"],
+      objectSrc: ["'none'"],
+      mediaSrc: ["'self'"],
+      frameSrc: ["'self'", "https://verify.walletconnect.com", "https://verify.walletconnect.org"],
+    },
+  },
+}));
+app.use(cors({
+  origin: ["*"],
+  credentials: false,
+  methods: ["*"],
+  allowedHeaders: ["*"]
+}));
+app.use(express.json());
+
+// Rate limiting
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 1000, // limit each IP to 1000 requests per windowMs
+});
+app.use(limiter);
+
+// Serve frontend static files from ../frontend/dist at root "/"
+const frontendDist = path.join(__dirname, '..', 'frontend', 'dist');
+if (fs.existsSync(frontendDist)) {
+  app.use(express.static(frontendDist));
+  // Serve index.html for root and for SPA client-side routes (ignore /api/*)
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api/')) return next();
+    res.sendFile(path.join(frontendDist, 'index.html'));
+  });
+  logger.info(`Serving frontend static files from ${frontendDist}`);
+} else {
+  logger.info(`Frontend dist not found at ${frontendDist}; root route not served`);
+}
+
+// Global state - tipMsgs still needed for tip functionality
+let tipMsgs = [];
+
+// Tip request validation class
+class TipRequest {
+  constructor(data = {}) {
+    this.msg = data.msg ?? ''; // default to empty string
+    this.userAddress = data.userAddress ?? '';
+    this.userSignature = data.userSignature ?? '';
   }
 }
 
-async function updateStream(req) {
-  if (!req.controlId) {
-    throw new Error("Missing control_id for stream update");
-  }
-
-  const controlIdData = streamControlIds[req.controlId];
-  if (!controlIdData) {
-    throw new Error("Invalid control_id for stream update");
-  }
-
-  const now = new Date();
-  if (now < controlIdData.start || now > controlIdData.expiresAt) {
-    throw new Error(`control_id has expired or not yet active, start_utc: ${controlIdData.start.toISOString()}, expires_at_utc: ${controlIdData.expiresAt.toISOString()}`);
-  }
-
-  try {
-    const updateResp = await axios.post(
-      `${GATEWAY_URL}/ai/stream/${streamId}/update`,
-      { params: req },
-      { headers: { "Authorization": `Bearer ${MUXION_API_KEY}` } }
-    );
-
-    if (updateResp.status !== 200) {
-      logger.error(`Failed to update stream: ${updateResp.status} ${updateResp.data}`);
-      throw new Error("Failed to update stream");
-    }
-
-    logger.info(`Stream updated for control_id: ${req.controlId}`);
-    return {
-      stream: {
-        status: "updated"
-      }
-    };
-  } catch (error) {
-    logger.error(`Update stream failed: ${error.message}`);
-    throw error;
-  }
-}
-
-function setupStreamControl(req, controlMinutes) {
-  const controlId = uuidv4().replace(/-/g, '');
-  let nextStart = nextControlStart;
-  
-  if (nextStart === 0 || nextStart < new Date()) {
-    nextStart = new Date();
-    nextControlStart = new Date(nextStart.getTime() + controlMinutes * 60000);
-  }
-
-  streamControlIds[controlId] = {
-    start: nextStart,
-    expiresAt: nextControlStart,
-    params: req
-  };
-
-  return [controlId, nextControlStart];
-}
-
-// Routes
-
-// Stream director endpoints
-app.post('/api/stream/director/1', async (req, res) => {
-  try {
-    if (!streamRunning) {
-      await startStream(req.body);
-    } else {
-      const [controlId, expiresAt] = setupStreamControl(req.body, 1);
-      req.body.controlId = controlId;
-      await updateStream(req.body);
-    }
-    
-    res.json({
-      deposit: {
-        amount_usd: 1,
-        control_id: req.body.controlId,
-        expires_at_utc: nextControlStart.toISOString()
-      }
-    });
-  } catch (error) {
-    logger.error(`Stream director 1 failed: ${error.message}`);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post('/api/stream/director/5', async (req, res) => {
-  try {
-    if (!streamRunning) {
-      await startStream(req.body);
-    } else {
-      const [controlId, expiresAt] = setupStreamControl(req.body, 5);
-      req.body.controlId = controlId;
-      await updateStream(req.body);
-    }
-    
-    res.json({
-      deposit: {
-        amount_usd: 5,
-        control_id: req.body.controlId,
-        expires_at_utc: nextControlStart.toISOString()
-      }
-    });
-  } catch (error) {
-    logger.error(`Stream director 5 failed: ${error.message}`);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post('/api/stream/director/10', async (req, res) => {
-  try {
-    if (!streamRunning) {
-      await startStream(req.body);
-    } else {
-      const [controlId, expiresAt] = setupStreamControl(req.body, 10);
-      req.body.controlId = controlId;
-      await updateStream(req.body);
-    }
-    
-    res.json({
-      deposit: {
-        amount_usd: 10,
-        control_id: req.body.controlId,
-        expires_at_utc: nextControlStart.toISOString()
-      }
-    });
-  } catch (error) {
-    logger.error(`Stream director 10 failed: ${error.message}`);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post('/api/stream/director/update', async (req, res) => {
-  try {
-    if (!streamRunning) {
-      return res.status(400).json({ error: "Stream is not running" });
-    }
-    
-    if (!req.body.controlId) {
-      return res.status(400).json({ error: "Missing control_id for stream update" });
-    }
-    
-    await updateStream(req.body);
-    res.json({
-      stream: {
-        status: "updated"
-      }
-    });
-  } catch (error) {
-    logger.error(`Stream director update failed: ${error.message}`);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Tip endpoints
 app.post('/api/tip/1', (req, res) => {
   try {
     const tipRequest = new TipRequest(req.body);
     tipMsgs.push({ msg: tipRequest.msg, level: 1, ts: Date.now() / 1000 });
+    
+    // Add user to supporter chat if available
+    if (tipRequest.userAddress) {
+      chatRouter.addSupporterUser(tipRequest.userAddress, tipRequest.userSignature, 0.01);
+    }
+    
     res.json({
       tip: {
-        amount_usd: 0.01
+        amount_usd: 0.01,
+        status: "success"
       }
     });
   } catch (error) {
@@ -444,9 +262,16 @@ app.post('/api/tip/5', (req, res) => {
   try {
     const tipRequest = new TipRequest(req.body);
     tipMsgs.push({ msg: tipRequest.msg, level: 5, ts: Date.now() / 1000 });
+    
+    // Add user to supporter chat if available
+    if (req.body.userAddress) {
+      chatRouter.addSupporterUser(req.body.userAddress, 0.05);
+    }
+    
     res.json({
       tip: {
-        amount_usd: 0.05
+        amount_usd: 0.05,
+        status: "success"
       }
     });
   } catch (error) {
@@ -459,9 +284,16 @@ app.post('/api/tip/10', (req, res) => {
   try {
     const tipRequest = new TipRequest(req.body);
     tipMsgs.push({ msg: tipRequest.msg, level: 10, ts: Date.now() / 1000 });
+    
+    // Add user to supporter chat if available
+    if (req.body.userAddress) {
+      chatRouter.addSupporterUser(req.body.userAddress, 0.1);
+    }
+    
     res.json({
       tip: {
-        amount_usd: 0.1
+        amount_usd: 0.1,
+        status: "success"
       }
     });
   } catch (error) {
@@ -470,120 +302,111 @@ app.post('/api/tip/10', (req, res) => {
   }
 });
 
-// Super chat functionality
-const SUPER_CHAT_EXPIRY = {
-  1: 5,
-  5: 15,
-  10: 25
-};
-
-function pruneAndGetActiveChats() {
-  const now = Date.now() / 1000;
-  const active = [];
-  const newTipMsgs = [];
-
-  for (const t of tipMsgs) {
-    const level = t.level || 1;
-    const ts = t.ts || now;
-    const expiry = SUPER_CHAT_EXPIRY[level] || 5;
-    const remaining = expiry - (now - ts);
-    
-    if (remaining > 0) {
-      const remainingSeconds = Math.max(0, Math.floor(remaining));
-      active.push({
-        msg: t.msg,
-        level: level,
-        remaining_seconds: remainingSeconds,
-        ts: ts
-      });
-      newTipMsgs.push({
-        msg: t.msg,
-        level: level,
-        ts: ts
-      });
-    }
-  }
-
-  tipMsgs = newTipMsgs;
-  logger.info(`Active super chats: ${JSON.stringify(active)}`);
-  
-  // Sort by level desc, then by timestamp desc
-  active.sort((a, b) => (-a.level, -b.ts));
-  return active;
-}
-
-app.get('/api/super/chat', (req, res) => {
+app.post('/api/tip/25', (req, res) => {
   try {
-    const active = pruneAndGetActiveChats();
-    res.json({ super_chats: active });
+    const tipRequest = new TipRequest(req.body);
+    tipMsgs.push({ msg: tipRequest.msg, level: 25, ts: Date.now() / 1000 });
+    
+    // Add user to supporter chat if available
+    if (req.body.userAddress) {
+      chatRouter.addSupporterUser(req.body.userAddress, 0.25);
+    }
+    
+    res.json({
+      tip: {
+        amount_usd: 0.25,
+        status: "success"
+      }
+    });
   } catch (error) {
-    logger.error(`Get super chat failed: ${error.message}`);
+    logger.error(`Tip 25 failed: ${error.message}`);
     res.status(500).json({ error: error.message });
   }
 });
 
-// Payment confirmation endpoint
-app.post('/api/stream/payment/sent', (req, res) => {
-  res.json({
-    payment: {
-      status: "received"
-    }
-  });
-});
-
-// Stream URL endpoint
-app.get('/stream/url', (req, res) => {
-  if (!streamRunning) {
-    return res.json({
-      stream: {
-        status: "not_running",
-        whep_url: null
-      }
-    });
+// Models (equivalent to Pydantic models)
+class PromptRequest {
+  constructor(data) {
+    this.prompt = data.prompt;
+    this.seed = data.seed || 42;
+    this.steps = data.steps || 28;
+    this.guidanceScale = data.guidance_scale || 4.0;
+    this.referenceImages = data.reference_images || null;
+    this.controlId = data.control_id || null;
   }
-
-  let whepUrl = streamUrls.whep_url;
-  if (!whepUrl && streamUrls.stream_id) {
-    whepUrl = `${GATEWAY_URL.replace('gateway', 'stream')}/whep/${streamUrls.stream_id}`;
-  }
-
-  res.json({
-    stream: {
-      status: "running",
-      whep_url: whepUrl,
-      stream_id: streamUrls.stream_id,
-      playback_url: streamUrls.playback_url
-    }
-  });
-});
+}
 
 // Health check endpoint
 app.get('/health', (req, res) => {
-  res.json({ status: "ok" });
+  res.json({ status: 'healthy', timestamp: new Date().toISOString() });
 });
 
-// Static file serving
-app.use('/assets', express.static(path.join(__dirname, '../frontend/dist/assets')));
-
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, '../frontend/dist/index.html'));
+// App name endpoint
+app.get('/api/name', (req, res) => {
+  res.json({ name: APP_NAME });
 });
 
-// Start the server
-app.listen(PORT, () => {
-  logger.info(`Server running on port ${PORT}`);
-  startSweepTask();
+// Error handling middleware
+app.use((err, req, res, next) => {
+  logger.error(`Unhandled error: ${err.message}`);
+  res.status(500).json({ error: 'Internal server error' });
 });
 
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  logger.info('SIGTERM received, shutting down gracefully');
-  process.exit(0);
+const http = require('http');
+const server = http.createServer(app);
+
+// Initialize WebSocket server with chat router
+chatRouter.initializeWebSocketServer(server);
+
+// Create USDC sweep task
+const usdcSweep = createSweepTask({
+  depositAddress,
+  depositPrivateKey,
+  provider,
+  sweepAddress: SWEEP_ADDRESS,
+  network: NETWORK,
+  facilitatorUrl: FACILITATOR_URL,
+  logger
 });
 
-process.on('SIGINT', () => {
-  logger.info('SIGINT received, shutting down gracefully');
-  process.exit(0);
+server.listen(PORT, () => {
+  logger.info(`Stream server running on port ${PORT}`);
+  logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  logger.info(`Base RPC URL: ${BASE_RPC_URL}`);
+  logger.info(`Facilitator URL: ${FACILITATOR_URL}`);
+  logger.info(`Sweep Address: ${SWEEP_ADDRESS}`);
+  
+  // Start background sweep task
+  usdcSweep.startSweepTask();
+  
+  logger.info("x402-gateway stream server initialized successfully");
 });
 
-module.exports = app;
+// Graceful shutdown handler - perform final USDC sweep on server close
+async function gracefulShutdown(signal) {
+  logger.info(`${signal} received, performing final USDC sweep...`);
+  
+  try {
+    await usdcSweep.sweepUsdc();
+    logger.info('Final USDC sweep completed');
+  } catch (error) {
+    logger.error(`Final sweep failed: ${error.message}`);
+  }
+  
+  server.close(() => {
+    logger.info('Server closed');
+    process.exit(0);
+  });
+  
+  // Force close after 10 seconds
+  setTimeout(() => {
+    logger.error('Forced shutdown after timeout');
+    process.exit(1);
+  }, 10000);
+}
+
+// Listen for termination signals
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+module.exports = { app };
