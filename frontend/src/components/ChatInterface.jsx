@@ -1,219 +1,328 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { Send, MessageCircle, Users, Shield, Crown, Lock } from 'lucide-react'
 import { useWallet } from './WalletConnect'
 
-const API_BASE = ''
+const API_BASE = 'http://localhost:4021'
 
 function ChatInterface() {
   const wallet = useWallet()
   const [activeTab, setActiveTab] = useState('public')
   const [messages, setMessages] = useState([])
   const [newMessage, setNewMessage] = useState('')
-  const [dmAddress, setDmAddress] = useState('')
-  const [dmMessage, setDmMessage] = useState('')
-  const [superChatAmount, setSuperChatAmount] = useState(1)
   const [superChatMessage, setSuperChatMessage] = useState('')
-  const [directorMessage, setDirectorMessage] = useState('')
   const [loading, setLoading] = useState(false)
+  const [connected, setConnected] = useState(false)
+  const [ws, setWs] = useState(null)
+  const [userJoined, setUserJoined] = useState(false)
+  const [lastMessageTime, setLastMessageTime] = useState(0)
+  const [isSupporter, setIsSupporter] = useState(false)
+  const messagesEndRef = useRef(null)
+  const messageInputRef = useRef(null)
+  const prevRoomRef = useRef(null)
+
+  // Function to open tip jar from parent component
+  const openTipJar = () => {
+    // Dispatch custom event to open tip jar in main app
+    window.dispatchEvent(new CustomEvent('openTipJar'))
+  }
 
   const messageTypes = {
-    public: { icon: Users, label: 'Public Chat', color: 'blue' },
-    dm: { icon: MessageCircle, label: 'Direct Messages', color: 'green' },
-    super: { icon: Crown, label: 'Super Chat', color: 'gold' },
-    director: { icon: Shield, label: 'Director Chat', color: 'purple' }
+    public: { icon: Users, label: 'Public', color: 'blue' },
+    supporter: { icon: Crown, label: 'Supporter', color: 'gold' }
   }
 
-  // Fetch messages for each chat type
-  const fetchMessages = async (type) => {
-    try {
-      const endpoint = type === 'public' ? '/api/super/chat' : `/api/messages/${type}`
-      const response = await fetch(`${API_BASE}${endpoint}`)
+  // Helper function to truncate addresses
+  const truncateAddress = (address) => {
+    if (!address || address.length < 10) return address
+    return `${address.slice(0, 6)}...${address.slice(-4)}`
+  }
+
+  // Check supporter status via WebSocket
+  const checkSupporterStatus = async (userAddress, userSignature) => {
+    if (!ws || !userAddress || ws.readyState !== WebSocket.OPEN) {
+      console.log('WebSocket not ready for supporter check')
+      return false
+    }
+    
+    return new Promise((resolve) => {
+      let timeoutId = setTimeout(() => {
+        resolve(false)
+      }, 3000)
       
+      const handleMessage = (event) => {
+        try {
+          const data = JSON.parse(event.data)
+          if (data.type === 'supporter_status' && data.userAddress === userAddress) {
+            clearTimeout(timeoutId)
+            setIsSupporter(data.isSupporter)
+            resolve(data.isSupporter)
+            ws.removeEventListener('message', handleMessage)
+          }
+        } catch (error) {
+          console.error('Error parsing supporter status message:', error)
+        }
+      }
+      
+      ws.addEventListener('message', handleMessage)
+      
+      ws.send(JSON.stringify({
+        type: 'is_supporter',
+        userAddress,
+        userSignature
+      }))
+    })
+  }
+
+  // Initialize WebSocket connection
+  useEffect(() => {
+    if (!ws) {
+      const wsUrl = API_BASE.replace('http', 'ws') + '/ws'
+      const newWs = new WebSocket(wsUrl)
+      
+      newWs.onopen = () => {
+        console.log('Connected to chat server')
+        setConnected(true)
+      }
+      
+      newWs.onclose = (event) => {
+        console.log('Disconnected from chat server, code:', event.code, 'reason:', event.reason)
+        setConnected(false)
+      }
+      
+      newWs.onerror = (error) => {
+        console.error('WebSocket error:', error)
+      }
+      
+      newWs.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data)
+          console.log('Received message:', data)
+          
+          switch (data.type) {
+            case 'connection':
+              console.log('Connection established:', data.message)
+              break
+            case 'supporter_status':
+              console.log('Supporter status:', data)
+              if (data.userAddress === wallet.address || data.userAddress === wallet.loginAddress) {
+                setIsSupporter(data.isSupporter)
+              }
+              break
+            case 'chat_message':
+              // Deduplicate server-echoed messages for ones we already optimistically added.
+              setMessages(prev => {
+                try {
+                  // Look for a local optimistic message that matches by content and sender
+                  const localIndex = prev.findIndex(m => m.id && m.id.toString().startsWith('local-') && m.content === data.content && m.sender === data.sender)
+                  if (localIndex !== -1) {
+                    // Replace the local optimistic message with the authoritative server message
+                    const next = prev.slice()
+                    next[localIndex] = data
+                    return next
+                  }
+                } catch (err) {
+                  console.warn('Failed to dedupe chat message:', err)
+                }
+                return [...prev, data]
+              })
+              break
+            case 'user_joined':
+              console.log('User joined:', data)
+              break
+            case 'user_left':
+              console.log('User left:', data)
+              break
+            case 'error':
+              console.error('WebSocket error:', data.message)
+              alert(data.message)
+              break
+            case 'join_success':
+              console.log('Join success:', data.message)
+              break
+          }
+        } catch (error) {
+          console.error('Failed to parse WebSocket message:', error)
+        }
+      }
+      
+      setWs(newWs)
+      
+      return () => {
+        newWs.close()
+      }
+    }
+  }, [])
+
+  // Auto-scroll to bottom when new messages arrive
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages])
+
+  // Join chat room when tab changes
+  useEffect(() => {
+    // Always join the chat room when WebSocket is ready, even for anonymous users.
+    if (ws && connected && !userJoined) {
+      const room = activeTab
+      const userType = 'public'
+
+      ws.send(JSON.stringify({
+        type: 'join_chat',
+        room,
+        userAddress: wallet.address || 'anon',
+        userType
+      }))
+
+      // remember the room we've joined so we can leave it later
+      prevRoomRef.current = room
+      setUserJoined(true)
+    }
+  }, [ws, connected, activeTab, userJoined])
+
+  // Leave previous chat room when the active tab changes
+  useEffect(() => {
+    const prev = prevRoomRef.current
+    // if there's a previously joined room and it's different from the current active tab, leave it
+    if (ws && prev && prev !== activeTab) {
+      ws.send(JSON.stringify({
+        type: 'leave_chat',
+        room: prev
+      }))
+
+      // clear remembered previous room and mark not joined so join effect can run for new room
+      prevRoomRef.current = null
+      setUserJoined(false)
+    }
+  }, [ws, activeTab])
+
+  // Fetch initial messages when joining a room
+  const fetchMessages = async (room) => {
+    try {
+      const response = await fetch(`${API_BASE}/api/chat/messages/${room}`)
       if (response.ok) {
         const data = await response.json()
-        return data.messages || data || []
+        setMessages(data.messages || [])
       }
-      return []
     } catch (error) {
-      console.error(`Failed to fetch ${type} messages:`, error)
-      return []
+      console.error(`Failed to fetch ${room} messages:`, error)
     }
   }
 
-  // Load messages when tab changes
+  // Load messages when joining a room
   useEffect(() => {
-    const loadMessages = async () => {
-      const fetchedMessages = await fetchMessages(activeTab)
-      setMessages(fetchedMessages)
+    if (ws && userJoined) {
+      fetchMessages(activeTab)
     }
-    loadMessages()
-  }, [activeTab])
+  }, [ws, userJoined, activeTab])
 
   // Send public chat message
   const sendPublicMessage = async () => {
-    if (!newMessage.trim() || !wallet.connected) return
+    if (!newMessage.trim() || !ws) return
+
+    // Check rate limiting for non-wallet users
+    const now = Date.now()
+    const timeSinceLastMessage = now - lastMessageTime
+    
+    // Use wallet.isConnected instead of wallet.connected to ensure consistency
+    if (!wallet.isConnected && timeSinceLastMessage < 60000) { // 1 minute = 60000ms
+      const remainingTime = Math.ceil((60000 - timeSinceLastMessage) / 1000)
+      alert(`Rate limit: Please wait ${remainingTime} seconds before sending another message`)
+      return
+    }
 
     setLoading(true)
     try {
-      const response = await fetch(`${API_BASE}/api/messages/public-chat`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          content: newMessage,
-          metadata: {
-            sender: wallet.address,
-            timestamp: new Date().toISOString()
-          }
-        })
-      })
-
-      if (response.ok) {
-        setNewMessage('')
-        // Refresh messages
-        const updatedMessages = await fetchMessages('public')
-        setMessages(updatedMessages)
-      }
+      ws.send(JSON.stringify({
+        type: 'chat_message',
+        room: 'public',
+        message: newMessage,
+        messageType: 'public',
+        userAddress: wallet.address || 'anon',
+        userSignature: wallet.loginSignature || ''
+      }))
+      
+      setNewMessage('')
+      setLastMessageTime(now)
     } catch (error) {
       console.error('Failed to send public message:', error)
     }
     setLoading(false)
   }
 
-  // Send DM message
-  const sendDM = async () => {
-    if (!dmAddress.trim() || !dmMessage.trim() || !wallet.connected) return
+  // Send supporter chat message with signature verification
+  const sendSupporterChat = async () => {
+    if (!superChatMessage.trim() || !wallet.isConnected || !ws) return
+
+    // Check if we have a login signature from wallet context
+    if (!wallet.loginSignature || !wallet.loginAddress) {
+      alert('Please login with your wallet first to enable supporter chat functionality')
+      return
+    }
 
     setLoading(true)
     try {
-      const response = await fetch(`${API_BASE}/api/messages/dm`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          peerAddress: dmAddress,
-          content: dmMessage,
-          metadata: {
-            sender: wallet.address,
-            timestamp: new Date().toISOString()
-          }
-        })
+      var msg = JSON.stringify({
+        type: 'chat_message',
+        room: 'supporter',
+        message: superChatMessage,
+        messageType: 'supporter',
+        signature: wallet.loginSignature,
+        address: wallet.loginAddress
       })
 
-      if (response.ok) {
-        setDmMessage('')
-        // Refresh messages
-        const updatedMessages = await fetchMessages('dm')
-        setMessages(updatedMessages)
-      }
+      ws.send(msg)
+      
+      setSuperChatMessage('')
     } catch (error) {
-      console.error('Failed to send DM:', error)
+      console.error('Failed to send supporter chat:', error)
+      alert('Failed to send supporter chat: ' + error.message)
     }
     setLoading(false)
   }
 
-  // Send super chat with tip
-  const sendSuperChat = async () => {
-    if (!superChatMessage.trim() || !superChatAmount || !wallet.connected) return
-
-    setLoading(true)
-    try {
-      const response = await fetch(`${API_BASE}/api/messages/super-chat`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          content: superChatMessage,
-          tipAmount: superChatAmount,
-          paymentVerification: {
-            currency: 'USDC',
-            amount: superChatAmount
-          }
-        })
-      })
-
-      if (response.ok) {
-        setSuperChatMessage('')
-        // Refresh messages
-        const updatedMessages = await fetchMessages('super')
-        setMessages(updatedMessages)
-      }
-    } catch (error) {
-      console.error('Failed to send super chat:', error)
+  // Get current active message input and send function
+  const getCurrentInput = () => {
+    switch (activeTab) {
+      case 'public':
+        return { value: newMessage, setValue: setNewMessage, send: sendPublicMessage }
+      case 'supporter':
+        return { value: superChatMessage, setValue: setSuperChatMessage, send: sendSupporterChat }
+      default:
+        return { value: newMessage, setValue: setNewMessage, send: sendPublicMessage }
     }
-    setLoading(false)
   }
 
-  // Send director chat message
-  const sendDirectorMessage = async () => {
-    if (!directorMessage.trim() || !wallet.connected) return
+  const currentInput = getCurrentInput()
 
-    setLoading(true)
-    try {
-      const response = await fetch(`${API_BASE}/api/messages/director-chat`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          content: directorMessage,
-          directorAuth: {
-            directorId: wallet.address,
-            permissions: ['broadcast', 'moderate']
-          }
-        })
-      })
+  // Autosize textarea height based on content
+  useEffect(() => {
+    const el = messageInputRef.current
+    if (!el) return
+    // reset height to compute scrollHeight correctly
+    el.style.height = 'auto'
+    const newHeight = Math.min(el.scrollHeight, 140)
+    el.style.height = `${newHeight}px`
+  }, [newMessage, superChatMessage, activeTab])
 
-      if (response.ok) {
-        setDirectorMessage('')
-        // Refresh messages
-        const updatedMessages = await fetchMessages('director')
-        setMessages(updatedMessages)
-      }
-    } catch (error) {
-      console.error('Failed to send director message:', error)
+  // Check supporter status when wallet connects or address changes
+  useEffect(() => {
+    if (wallet.isConnected && (wallet.address || wallet.loginAddress) && ws && connected) {
+      const userAddress = wallet.address || wallet.loginAddress
+      const userSignature = wallet.loginSignature || ''
+      checkSupporterStatus(userAddress, userSignature)
     }
-    setLoading(false)
-  }
-
-  const renderMessage = (message, index) => {
-    const type = activeTab
-    const isOwn = message.sender === wallet.address
-    
-    return (
-      <div key={index} className={`message ${type} ${isOwn ? 'own' : 'other'}`}>
-        <div className="message-header">
-          <span className="message-sender">
-            {isOwn ? 'You' : message.sender?.substring(0, 8) + '...'}
-          </span>
-          <span className="message-time">
-            {new Date(message.timestamp).toLocaleTimeString()}
-          </span>
-        </div>
-        <div className="message-content">
-          {message.content}
-          {message.tip && (
-            <div className="tip-badge">
-              💰 ${message.tip.amount} {message.tip.currency}
-            </div>
-          )}
-          {message.director && (
-            <div className="director-badge">
-              🎬 Director Message
-            </div>
-          )}
-        </div>
-      </div>
-    )
-  }
+  }, [wallet.isConnected, wallet.address, wallet.loginAddress, ws, connected])
 
   return (
-    <div className="chat-interface glass">
+    <div className="chat-interface">
       <div className="chat-header">
-        <h3>Chat</h3>
+        <div className="chat-title">
+          <h3>Chat</h3>
+          <span
+            className={`connection-indicator ${connected ? 'connected' : 'disconnected'}`}
+            title={connected ? 'Connected' : 'Disconnected'}
+            aria-hidden="true"
+          />
+        </div>
         <div className="chat-tabs">
           {Object.entries(messageTypes).map(([key, type]) => {
             const Icon = type.icon
@@ -221,7 +330,35 @@ function ChatInterface() {
               <button
                 key={key}
                 className={`chat-tab ${activeTab === key ? 'active' : ''}`}
-                onClick={() => setActiveTab(key)}
+                onClick={async () => {
+                  if (key === 'supporter' && wallet.isConnected) {
+                    // Check if user has access to supporter chat via WebSocket
+                    const userAddress = wallet.address || wallet.loginAddress
+                    const userSignature = wallet.loginSignature || ''
+                    if (userAddress) {
+                      const hasTipped = await checkSupporterStatus(userAddress, userSignature)
+
+                      if (!hasTipped) {
+                        // Add error message to chat history
+                        const errorMessage = {
+                          id: `error-${Date.now()}`,
+                          content: 'You need to tip to access Supporter Chat. Opening tip jar...',
+                          sender: 'System',
+                          senderType: 'system',
+                          messageType: 'error',
+                          timestamp: new Date().toISOString()
+                        }
+                        setMessages(prev => [...prev, errorMessage])
+                        openTipJar() // Open existing tip jar in video player
+                        return
+                      }
+                    }
+                  }
+                  
+                  setActiveTab(key)
+                  setUserJoined(false) // Reset to rejoin new room
+                  setMessages([]) // Clear messages when switching tabs
+                }}
               >
                 <Icon size={16} />
                 {type.label}
@@ -231,137 +368,76 @@ function ChatInterface() {
         </div>
       </div>
 
-      <div className="chat-content">
-        {/* Messages Display */}
-        <div className="messages-container">
-          {messages.length > 0 ? (
-            messages.map(renderMessage)
-          ) : (
-            <div className="no-messages">
-              <MessageCircle size={24} />
-              <p>No messages yet. Start the conversation!</p>
-            </div>
-          )}
-        </div>
-
-        {/* Message Input Areas */}
-        <div className="chat-inputs">
-          {/* Public Chat Input */}
-          {activeTab === 'public' && (
-            <div className="input-section">
-              <div className="input-group">
-                <input
-                  type="text"
-                  placeholder="Send a public message..."
-                  value={newMessage}
-                  onChange={(e) => setNewMessage(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && sendPublicMessage()}
-                  disabled={loading || !wallet.connected}
-                />
-                <button
-                  onClick={sendPublicMessage}
-                  disabled={loading || !newMessage.trim() || !wallet.connected}
-                >
-                  <Send size={16} />
-                </button>
+      <div className="messages-container">
+        {messages.map((message, index) => {
+          const isOwnMessage = wallet.address && message.sender === wallet.address
+          return (
+            <div key={message.id || index} className={`message-wrapper ${isOwnMessage ? 'own' : ''}`}>
+              <div className="message-timestamp">
+                {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               </div>
-            </div>
-          )}
-
-          {/* DM Input */}
-          {activeTab === 'dm' && (
-            <div className="input-section">
-              <div className="dm-address-input">
-                <input
-                  type="text"
-                  placeholder="Recipient address..."
-                  value={dmAddress}
-                  onChange={(e) => setDmAddress(e.target.value)}
-                  disabled={loading}
-                />
-              </div>
-              <div className="input-group">
-                <input
-                  type="text"
-                  placeholder="Send a direct message..."
-                  value={dmMessage}
-                  onChange={(e) => setDmMessage(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && sendDM()}
-                  disabled={loading || !wallet.connected}
-                />
-                <button
-                  onClick={sendDM}
-                  disabled={loading || !dmMessage.trim() || !dmAddress.trim() || !wallet.connected}
-                >
-                  <Send size={16} />
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Super Chat Input */}
-          {activeTab === 'super' && (
-            <div className="input-section">
-              <div className="super-chat-controls">
-                <div className="amount-input">
-                  <label>Tip Amount (USDC):</label>
-                  <select
-                    value={superChatAmount}
-                    onChange={(e) => setSuperChatAmount(parseInt(e.target.value))}
-                    disabled={loading}
-                  >
-                    <option value={1}>$1</option>
-                    <option value={5}>$5</option>
-                    <option value={10}>$10</option>
-                    <option value={25}>$25</option>
-                    <option value={50}>$50</option>
-                  </select>
+              <div className={`message ${message.messageType} ${isOwnMessage ? 'own' : ''}`}>
+                <div className="message-header">
+                  <span className="sender">
+                    {message.senderType === 'supporter' && <Crown size={14} />}
+                    {truncateAddress(message.sender)}
+                    {isOwnMessage && <span className="you-badge">You</span>}
+                  </span>
+                </div>
+                <div className="message-content">
+                  {message.content}
+                  {message.messageType === 'supporter' && (
+                    <span className="supporter-badge">Supporter Chat</span>
+                  )}
                 </div>
               </div>
-              <div className="input-group">
-                <input
-                  type="text"
-                  placeholder="Send a super chat message..."
-                  value={superChatMessage}
-                  onChange={(e) => setSuperChatMessage(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && sendSuperChat()}
-                  disabled={loading || !wallet.connected}
-                />
-                <button
-                  onClick={sendSuperChat}
-                  disabled={loading || !superChatMessage.trim() || !superChatAmount || !wallet.connected}
-                >
-                  <Crown size={16} />
-                </button>
-              </div>
             </div>
-          )}
+          )
+        })}
+        <div ref={messagesEndRef} />
+      </div>
 
-          {/* Director Chat Input */}
-          {activeTab === 'director' && (
-            <div className="input-section">
-              <div className="director-info">
-                <Lock size={16} />
-                <span>Director Only - Authenticated users only</span>
-              </div>
-              <div className="input-group">
-                <input
-                  type="text"
-                  placeholder="Send a director message..."
-                  value={directorMessage}
-                  onChange={(e) => setDirectorMessage(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && sendDirectorMessage()}
-                  disabled={loading || !wallet.connected}
-                />
-                <button
-                  onClick={sendDirectorMessage}
-                  disabled={loading || !directorMessage.trim() || !wallet.connected}
-                >
-                  <Shield size={16} />
-                </button>
-              </div>
-            </div>
-          )}
+      <div className="chat-inputs">
+        {activeTab === 'supporter' && wallet.loginSignature && (
+          <div className="login-success" style={{ marginTop: '8px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+            Logged in successfully
+          </div>
+        )}
+
+        <div className="input-group">
+          <textarea
+            ref={messageInputRef}
+            rows={2}
+            placeholder={
+              activeTab === 'supporter' ? "Enter supporter chat message..." :
+              "Enter public message..."
+            }
+            value={currentInput.value}
+            onChange={(e) => currentInput.setValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault()
+                currentInput.send()
+              }
+            }}
+            // Allow typing for public chat even when WebSocket isn't connected so users can draft messages.
+            // For supporter chat, keep input disabled when not connected to avoid confusing payment flows.
+            disabled={loading || (activeTab === 'supporter' && !connected)}
+            className="message-input"
+          />
+          <button
+            onClick={currentInput.send}
+            // Public chat: enable send button even if WebSocket isn't connected so users can queue/draft messages.
+            // Supporter chat: require connection to prevent accidental attempts without wallet/session.
+            disabled={
+              loading ||
+              !currentInput.value.trim() ||
+              (activeTab === 'supporter' && !connected)
+            }
+            className="send-button"
+          >
+            <Send size={16} />
+          </button>
         </div>
       </div>
     </div>

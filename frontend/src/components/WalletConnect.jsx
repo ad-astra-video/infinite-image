@@ -1,6 +1,6 @@
-import React, { useEffect, createContext, useContext, useMemo, useRef, useCallback } from 'react'
+import React, { useEffect, createContext, useContext, useMemo, useRef, useCallback, useState } from 'react'
 import { ConnectButton } from '@rainbow-me/rainbowkit'
-import { useAccount, useBalance, useContractRead, useSignTypedData } from 'wagmi'
+import { useAccount, useBalance, useContractRead, useSignTypedData, useNetwork } from 'wagmi'
 import { Wallet, CheckCircle, AlertTriangle, DollarSign, X } from 'lucide-react'
 import { buildX402TypedData } from '../utils/x402'
 
@@ -16,8 +16,28 @@ const X402SignerContext = createContext(null)
 // New comprehensive Wallet Provider - Centralizes all wallet functionality
 export function WalletProvider({ children }) {
   const { address, isConnected, chain } = useAccount()
+  const { chain: networkChain } = useNetwork() // Get network chain info
   const { signTypedDataAsync } = useSignTypedData()
-  const accountRef = useRef({ address, isConnected, chain })
+  const accountRef = useRef({ address, isConnected, chain: networkChain || chain })
+  // App name state from backend
+  const [appName, setAppName] = useState('X402-Gateway')
+
+  // Fetch app name from backend
+  useEffect(() => {
+    const fetchAppName = async () => {
+      try {
+        const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:4021'
+        const response = await fetch(`${API_BASE}/api/name`)
+        const data = await response.json()
+        setAppName(data.name || 'X402-Gateway')
+      } catch (error) {
+        console.warn('Failed to fetch app name from backend, using default:', error.message)
+        setAppName('X402-Gateway')
+      }
+    }
+
+    fetchAppName()
+  }, [])
 
     // USDC contract configuration
   const USDC_CONTRACT_ADDRESS = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
@@ -70,8 +90,96 @@ export function WalletProvider({ children }) {
 
   // Update account ref whenever account data changes
   useEffect(() => {
-    accountRef.current = { address, isConnected, chain }
-  }, [address, isConnected, chain])
+    // Prefer networkChain (from useNetwork) when available, fallback to useAccount chain
+    accountRef.current = { address, isConnected, chain: networkChain || chain }
+  }, [address, isConnected, chain, networkChain])
+
+  // Login signature state management
+  const [loginSignature, setLoginSignature] = useState(null)
+  const [loginAddress, setLoginAddress] = useState(null)
+  const [loginPrompted, setLoginPrompted] = useState(false)
+
+  // Function to create and sign login signature
+  const createLoginSignature = useCallback(async () => {
+    if (!isConnected || !address) {
+      throw new Error('Wallet not connected')
+    }
+
+    // Check if signTypedDataAsync is available
+    if (!signTypedDataAsync) {
+      throw new Error('Wallet signing functionality not available')
+    }
+
+    // Ensure chain object is available - prefer `networkChain` then `chain` and wait if needed
+    let currentChain = networkChain || chain
+    if (!currentChain) {
+      // Wait up to 3 seconds for chain object to become available
+      for (let i = 0; i < 30; i++) {
+        await new Promise(resolve => setTimeout(resolve, 100))
+        currentChain = accountRef.current.chain
+        if (currentChain) {
+          break
+        }
+      }
+    }
+
+    // If chain is still not available, use a default chain ID
+    const currentChainId = currentChain?.id || 84532
+
+    try {
+      // Create typed data for login
+      const loginData = {
+        domain: {
+          name: appName,
+          version: '1',
+          chainId: currentChainId, // Use actual chain ID from wallet connection
+        },
+        message: {
+          action: 'login',
+          timestamp: Date.now(),
+          nonce: Math.random().toString(36).substring(7)
+        },
+        primaryType: 'User',
+        types: {
+          User: [
+            { name: 'action', type: 'string' },
+            { name: 'timestamp', type: 'uint256' },
+            { name: 'nonce', type: 'string' },
+          ],
+          EIP712Domain: [
+            { name: 'name', type: 'string' },
+            { name: 'version', type: 'string' },
+            { name: 'chainId', type: 'uint256' },
+          ],
+        },
+      }
+
+      const signature = await signTypedDataAsync(loginData)
+      setLoginSignature(signature)
+      setLoginAddress(address)
+      setLoginPrompted(true)
+      return { signature, address }
+    } catch (error) {
+      console.error('Failed to create login signature:', error)
+      throw error
+    }
+  }, [isConnected, address, signTypedDataAsync, chain, networkChain, appName])
+
+  // Automatically prompt for login signature when wallet connects
+  useEffect(() => {
+    if (isConnected && address && !loginPrompted) {
+      // Small delay to ensure wallet is fully connected
+      const timer = setTimeout(() => {
+        createLoginSignature().catch(error => {
+          console.log('Auto-login failed:', error.message)
+          // Reset the prompted flag so we can retry
+          setLoginPrompted(false)
+        })
+      }, 1000)
+      
+      return () => clearTimeout(timer)
+    }
+  }, [isConnected, address, loginPrompted, createLoginSignature])
 
   // Connection state - trust isConnected as primary indicator
   const connected = !!isConnected
@@ -105,7 +213,7 @@ export function WalletProvider({ children }) {
     const typedData = buildX402TypedData(payReq, currentAccount.address)
     const signature = await signTypedDataAsync(typedData)
 
-    return { authorization: typedData.message, signature: signature, x402version: paymentRequirements.x402version || 1, x402scheme: payReq.scheme || 'exact', network: payReq.network || 'base-sepolia' }
+    return { authorization: typedData.message, signature: signature, x402Version: paymentRequirements.x402Version || 1, x402scheme: payReq.scheme || 'exact', network: payReq.network || 'base-sepolia' }
   }, [isConnected, signTypedDataAsync])
 
   // Context value - comprehensive wallet state
@@ -113,7 +221,7 @@ export function WalletProvider({ children }) {
     // Account data
     address,
     isConnected,
-    chain,
+    chain: networkChain || chain,
 
     // Balance data
     usdcBalance,
@@ -123,11 +231,19 @@ export function WalletProvider({ children }) {
     // Signing functionality
     signX402,
 
+    // Login signature for super chat verification
+    loginSignature,
+    loginAddress,
+    createLoginSignature,
+
     // Manual refetch hook for USDC balance
     refetchUsdc,
 
     // Connection state
     connected,
+
+    // App name from backend
+    appName,
 
     // Loading states
     isLoading: usdcLoading,
@@ -139,7 +255,11 @@ export function WalletProvider({ children }) {
     usdcLoading,
     usdcError,
     signX402,
+    loginSignature,
+    loginAddress,
+    createLoginSignature,
     connected,
+    appName,
     refetchUsdc
   ])
 
