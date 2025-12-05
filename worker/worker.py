@@ -1,0 +1,314 @@
+#!usr/bin/env python3
+from __future__ import annotations
+
+import asyncio
+import base64
+from fileinput import filename
+import gc
+import io
+import logging
+import os
+import sys
+import time
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Dict, List, Optional
+from fractions import Fraction
+import random
+import PIL
+
+import torch
+from diffusers import Flux2Pipeline
+from diffusers.utils import load_image
+from huggingface_hub import snapshot_download
+from PIL import Image
+
+from pytrickle import StreamProcessor, VideoFrame, AudioFrame
+from pytrickle.decorators import (
+    model_loader,
+    on_stream_start,
+    on_stream_stop,
+    param_updater,
+    video_handler,
+)
+from utils.enhance import enhance_frames
+import torchvision.transforms as T
+pil_to_tensor = T.ToTensor()
+
+# Configure logging
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
+
+def pil_to_bhwc(img: Image.Image) -> torch.Tensor:
+    t = pil_to_tensor(img)     # [C, H, W], float32 in 0–1
+    t = t.permute(1, 2, 0)     # [H, W, C]
+    t = t.unsqueeze(0)         # [B, H, W, C]
+    return t
+
+@dataclass
+class InfiniteFlux2Config:
+    prompt: str = "Realistic macro photograph of a hermit crab using a soda can as its shell, partially emerging from the can, captured with sharp detail and natural colors, on a sunlit beach with soft shadows and a shallow depth of field, with blurred ocean waves in the background. The can has the text `BFL Diffusers` on it and it has a color gradient that start with #FF5733 at the top and transitions to #33FF57 at the bottom."
+    reference_images: List[str] = None
+    steps: int = 28
+    guidance_scale: float = 4.0
+    seed : int = 42
+    #processed inputs to use for generation
+    processed_reference_images: List[PIL.Image.Image] = None
+
+
+class InfiniteFlux2StreamHandlers:
+    """Handlers for InfiniteFlux2 video generation with direct tensor inference."""
+
+    def __init__(self) -> None:
+        self.cfg = InfiniteFlux2Config()
+        self.processor = None
+        self.background_tasks: List[asyncio.Task] = []
+        self.background_task_started = False
+        
+        # Runner for direct inference
+        self.pipe = None
+        self.runner_ready = False
+        
+        # Generation completion tracking
+        self.frame_queue = asyncio.Queue()
+        self.frame_queue_lock = asyncio.Lock()
+        # Streaming state
+        self.frame_timestamp = 0
+        self.time_base = 90000  # Standard video timebase
+        self.time_base_frac = Fraction(1, self.time_base)
+        self.fps = 16  # Target FPS for generation
+        self.timestamp_increment = self.time_base // self.fps  # Increment per frame at 16 fps
+        self.placeholder_frame = None
+        self.current_frame = None
+        self.no_audio_in_stream = True
+       
+    @model_loader
+    async def load(self, **kwargs: dict) -> None:
+        
+        """Initialize processor state - called during model loading phase."""
+        try:
+            repo_id = os.environ.get("FLUX2_REPO_ID", "black-forest-labs/FLUX.2-dev")
+            flux_model_download = snapshot_download(
+                repo_id=repo_id,
+                exclude_patterns=["flux2-dev.safetensors", "ae.safetensors"],
+                local_dir=os.environ.get("MODEL_PATH", "/models")
+            )
+            logger.info(f"Model files downloaded to {flux_model_download}")
+            
+            pipe = Flux2Pipeline.from_pretrained(
+				repo_id, text_encoder=None, torch_dtype=torch.bfloat16
+			).to("cuda")
+            
+			#create placeholder image for frames until first generation completed
+            colors = [
+				(148, 0, 211),   # Violet
+				(75, 0, 130),    # Indigo
+				(0, 0, 255),     # Blue
+				(0, 255, 0),     # Green
+				(255, 255, 0),   # Yellow
+				(255, 127, 0),   # Orange
+				(255, 0, 0),     # Red
+			]
+
+            img = Image.new("RGB", (1024, 1024))
+            band_height = 1024 // len(colors)
+
+            for i, color in enumerate(colors):
+                y_start = i * band_height
+                y_end = (i + 1) * band_height if i < len(colors) - 1 else 1024
+
+                for y in range(y_start, y_end):
+                    for x in range(1024):
+                        img.putpixel((x, y), color)
+
+            self.placeholder_frame = pil_to_bhwc(img)
+        except Exception as e:
+            logger.error(f"Error loading model: {e}", exc_info=True)
+            self.runner_ready = False
+            raise
+
+    @on_stream_start
+    async def on_start(self, params) -> None:
+        """Called when stream starts - initialize resources."""
+        try:
+            logger.info("Stream started, initializing resources")
+            self.background_task_started = False
+            
+            # Check if runner is ready
+            if not self.runner_ready:
+                logger.error("Runner not ready - model may not be loaded yet")
+                raise RuntimeError("Model not loaded - please wait for load() to complete")
+            
+			# Reset streaming state
+            self.current_frame = self.placeholder_frame
+            
+            # Initialize frame sender queue and task
+            # Lock used to protect enqueuing of generated frames
+            frame_generator = asyncio.create_task(self._generate_images_for_video())
+            self.background_tasks.append(frame_generator)
+            frame_sender_task = asyncio.create_task(self._send_frames())
+            self.background_tasks.append(frame_sender_task)
+
+            # Set frame_timestamp and increment
+            self.frame_timestamp = 0
+            self.timestamp_increment = self.time_base // self.fps
+            
+            # Mark that we received init image and start generation task
+            await self.update_params(params)
+            # Runner is already initialized in load(), no need for server subprocess
+            logger.info("Stream initialization complete - runner ready for inference")
+        except Exception as e:
+            logger.error(f"Error in on_start: {e}", exc_info=True)
+            raise
+
+    @on_stream_stop
+    async def on_stop(self) -> None:
+        """Called when stream stops - cleanup background tasks."""
+        logger.info("Stream stopped, cleaning up background tasks")
+        
+        # Empty the frame_queue on stream stop
+        lock = getattr(self, "frame_queue_lock", None)
+        if lock is None:
+            # If lock was never created, just drain the queue directly
+            while not self.frame_queue.empty():
+                try:
+                    self.frame_queue.get_nowait()
+                except Exception:
+                    break
+            logger.info("Emptied frame queue on stream stop (no lock present)")
+        else:
+            async with lock:
+                while not self.frame_queue.empty():
+                    try:
+                        self.frame_queue.get_nowait()
+                    except Exception:
+                        break
+                logger.info("Emptied frame queue on stream stop")
+        
+        # Cancel all background tasks including placeholder task
+        for task in self.background_tasks:
+            if not task.done():
+                task.cancel()
+                logger.info("Cancelled background task")
+        
+        self.background_tasks.clear()
+        self.background_task_started = False
+        
+        # Cleanup runner
+        gc.collect()
+        torch.cuda.empty_cache()
+        
+        logger.info("All background tasks cleaned up")
+
+    @video_handler
+    async def handle_video(self, frame: VideoFrame) -> VideoFrame:
+        """
+        Process video frames - capture stream dimensions and pass through.
+        Video generation happens in background based on start_image parameter.
+        """               
+        # Just return the original frame - generation happens in background
+        # (add things here if want to do further processing - e.g. overlays, etc)
+            
+        return frame
+
+    async def _generate_images_for_video(self) -> None:
+        """
+        Background task to generate video from image and enqueue frames for streaming.
+        This runs continuously, generating new videos from the last frame.
+        Video generation runs in a separate thread to avoid blocking frame sending.
+        """
+        while True:
+            if self.processor.server.current_client.stop_event.is_set():
+                break
+            try:
+                gen_start = time.perf_counter()
+                image = self.pipe(
+					generator=torch.Generator(device="cuda").manual_seed(self.cfg.seed),
+					image=self.cfg.processed_reference_images,
+					**self.cfg
+				).images[0]
+                gen_end = time.perf_counter()
+                logger.info(f"Image generation took {gen_end - gen_start:.2f} seconds")
+
+                self.current_frame = image
+
+            except Exception as e:
+                logger.error(f"Error in image generation: {e}", exc_info=True)
+                await asyncio.sleep(1.0)
+            
+            await asyncio.sleep(0.1)
+
+    async def _send_frames(self):
+        """
+        Background task to send frames from the queue in parallel to inference.
+        """
+        logger.info("Frame sender task started")
+        try:
+            #create silent audio tensor for audio/video sync if needed
+            # default audio stream setup is 2 channel, 48kHz sample rate
+            silent_audio_tensor = torch.zeros((2, int(48000 * (1.0 / self.fps))), dtype=torch.float)
+
+            while True:
+                #set frame and increment timestamp
+                video_frame = VideoFrame(tensor=self.current_frame, timestamp=self.frame_timestamp, time_base=self.time_base_frac)
+                self.frame_timestamp += self.timestamp_increment
+
+                if not self.processor is None:
+                    await self.processor.send_input_frame(video_frame)
+                    logger.info(f"Sent {video_frame.__class__.__name__} frame {i+1}/{num_frames} with updated timestamp {video_frame.timestamp}")
+                    if self.no_audio_in_stream:
+                        #send silent audio frame to keep audio/video sync
+                        await self.processor.send_input_frame(
+                            AudioFrame.from_tensor(
+                                tensor=silent_audio_tensor,
+                                timestamp=video_frame.timestamp,
+                                time_base=self.time_base_frac,
+                                format="fltp",
+                                layout="stereo"
+                            )
+                        )
+                    await asyncio.sleep(1.0 * ((self.timestamp_increment-10) / 90000))  # Sleep to maintain target FPS
+        except asyncio.CancelledError:
+            logger.info("Frame sender task cancelled")
+            raise       
+    
+    @param_updater
+    async def update_params(self, params: dict) -> None:
+        """
+        Update configuration parameters dynamically.
+        When start_image is received, initiate the video generation pipeline.
+        """
+        #update params sent
+        self.cfg = InfiniteFlux2Config(**params)
+        self.cfg.processed_reference_images = None  # Reset processed reference images on param update
+
+async def main() -> None:
+    """Main entry point - creates and runs the stream processor."""
+    try:
+        from pytrickle.frame_overlay import OverlayConfig, OverlayMode
+        
+        handlers = InfiniteFlux2StreamHandlers()
+        processor = StreamProcessor.from_handlers(
+            handlers,
+            name="inifinite-flux-2-worker",
+            port=8000,
+            overlay_config=OverlayConfig(
+                mode=OverlayMode.PROGRESSBAR,
+                message="Loading...",
+                enabled=True,
+                auto_timeout_seconds=1.0,
+            )
+        )
+                
+        # Store processor reference for background tasks
+        handlers.processor = processor
+                
+        # Now start the server
+        await processor.run_forever()
+        
+    except Exception as e:
+        logger.error(f"Fatal error in main: {e}", exc_info=True)
+        raise
+
+if __name__ == "__main__":
+    asyncio.run(main())
