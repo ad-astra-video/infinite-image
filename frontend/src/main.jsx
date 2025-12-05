@@ -1,9 +1,9 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import App from './App.jsx'
 import { WalletProvider } from './components/WalletConnect'
 import ErrorBoundary from './components/ErrorBoundary'
 import './index.css'
+import App from './App.jsx'
 import '@rainbow-me/rainbowkit/styles.css'
 
 // Wagmi + RainbowKit setup (Base network only)
@@ -22,7 +22,7 @@ const projectId = import.meta.env.VITE_WALLETCONNECT_PROJECT_ID || Math.random()
 let connectors = []
 if (projectId) {
   const defaults = getDefaultWallets({
-    appName: import.meta.env.VITE_APP_NAME || 'X402-Gateway',
+    appName: import.meta.env.VITE_APP_NAME || 'X402-Stream',
     chains,
     projectId,
   })

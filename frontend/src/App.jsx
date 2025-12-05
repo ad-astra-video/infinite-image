@@ -8,7 +8,6 @@ import { useWallet } from './components/WalletConnect'
 
 function App() {
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [directorRequestSuccessful, setDirectorRequestSuccessful] = useState(false)
   const [streamSettings, setStreamSettings] = useState({
     prompt: 'A serene landscape with mountains and a river at sunset, digital art',
     steps: 28,
@@ -42,7 +41,6 @@ function App() {
 
   const handleApplySettings = () => {
     setSettingsOpen(false)
-    setDirectorOpen(true)
   }
 
   return (
@@ -58,10 +56,8 @@ function App() {
           </div>
 
           {/* Video Player Component */}
-          <VideoPlayer 
+          <VideoPlayer
             onOpenSettings={() => setSettingsOpen(true)}
-            directorRequestSuccessful={directorRequestSuccessful}
-            onDirectorRequestSuccess={() => setDirectorRequestSuccessful(true)}
             streamSettings={streamSettings}
           />
         </div> {/* end .player-column */}

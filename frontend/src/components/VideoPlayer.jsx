@@ -8,13 +8,10 @@ import {
   Loader2
 } from 'lucide-react'
 import { useWallet } from './WalletConnect'
+import { API_BASE } from '../utils/apiConfig'
 
-const API_BASE = ''
-
-function VideoPlayer({ 
-  onOpenSettings, 
-  directorRequestSuccessful,
-  onDirectorRequestSuccess,
+function VideoPlayer({
+  onOpenSettings,
   streamSettings
 }) {
   const wallet = useWallet()
@@ -36,7 +33,6 @@ function VideoPlayer({
   const [streamUrl, setStreamUrl] = useState(null)
   const [streamStatus, setStreamStatus] = useState('loading')
   const [tipJarOpen, setTipJarOpen] = useState(false)
-  const [directorOpen, setDirectorOpen] = useState(false)
   const [tipMessage, setTipMessage] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -79,7 +75,7 @@ function VideoPlayer({
     }
     const tipBody = { "msg": message, "userAddress": wallet.address || wallet.loginAddress, "userSignature": wallet.loginSignature || '' }
     try {
-      const response = await fetch(`/api/tip/${amount}`, {
+      const response = await fetch(`${API_BASE}/api/tip/${amount}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -123,6 +119,10 @@ function VideoPlayer({
 
       setTipMessage('')
       setTipJarOpen(false)
+      
+      // Dispatch tip success event for chat interface
+      window.dispatchEvent(new CustomEvent('tipSuccess', { detail: { amount } }))
+      
       // Refresh USDC balance after a successful tip (wait briefly for network propagation)
       try {
         // small delay to allow the payment/facilitator and RPC to reflect the new balance
@@ -137,75 +137,6 @@ function VideoPlayer({
     setLoading(false)
   }
 
-  const handleDirector = async (amount, streamSettings) => {
-    console.log('handleDirector called with amount:', amount, 'walletConnected:', wallet.connected)
-    setLoading(true)
-    
-    if (!wallet.connected) {
-      console.error('handleDirector: Wallet not connected according to context')
-      setLoading(false)
-      return
-    }
-    
-    try {
-      const response = await fetch(`${API_BASE}/api/stream/director/${amount}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-      })
-
-      if (response.status === 402) {
-        const paymentRequirements = await response.json().catch(() => null)
-        if (!paymentRequirements) throw new Error('Payment required but no challenge provided')
-
-        try {
-          const { authorization, signature, x402Version, x402scheme, network } = await wallet.signX402(paymentRequirements)
-          const paymentHeader = buildXPaymentHeader(authorization, signature, x402Version, x402scheme, network)
-
-          const retry = await fetch(`${API_BASE}/api/stream/director/${amount}`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-PAYMENT': paymentHeader,
-            },
-            body: JSON.stringify({ settings: streamSettings }),
-          })
-
-          if (!retry.ok) {
-            const errText = await retry.text().catch(() => retry.statusText)
-            throw new Error(errText || `HTTP ${retry.status}`)
-          }
-        } catch (signErr) {
-          throw signErr
-        }
-      } else {
-        if (!response.ok) {
-          const errText = await response.text().catch(() => response.statusText)
-          throw new Error(errText || `HTTP ${response.status}`)
-        }
-      }
-
-      setDirectorOpen(false)
-      
-      // Notify parent component of successful director request
-      if (onDirectorRequestSuccess) {
-        onDirectorRequestSuccess()
-      }
-      
-      // Refresh USDC balance after director request succeeds (allow brief propagation)
-      try {
-        await new Promise(resolve => setTimeout(resolve, 3000))
-        if (wallet?.refetchUsdc) await wallet.refetchUsdc()
-      } catch (e) {
-        console.warn('Failed to refetch USDC balance after director request', e)
-      }
-      
-    } catch (error) {
-      console.error('Failed to send director request:', error)
-    }
-    setLoading(false)
-  }
 
   return (
     <div className="video-container">
@@ -256,9 +187,6 @@ function VideoPlayer({
           <button
             className="control-btn glass"
             onClick={() => {
-              if (directorOpen) {
-                setDirectorOpen(false)
-              }
               setTipJarOpen(!tipJarOpen)
             }}
             disabled={loading}
@@ -281,114 +209,80 @@ function VideoPlayer({
                   />
                 </div>
                 <div className="tip-buttons">
-                  <button
-                    className="btn btn-secondary"
-                    onClick={() => handleTip(1, tipMessage)}
-                    disabled={loading || !wallet.connected}
-                    title={!wallet.connected ? 'Connect wallet first' : ''}
-                  >
-                    ${(1 * 0.01).toFixed(2)}
-                  </button>
-                  <button
-                    className="btn btn-secondary"
-                    onClick={() => handleTip(5, tipMessage)}
-                    disabled={loading || !wallet.connected}
-                    title={!wallet.connected ? 'Connect wallet first' : ''}
-                  >
-                    ${(5 * 0.01).toFixed(2)}
-                  </button>
-                  <button
-                    className="btn btn-secondary"
-                    onClick={() => handleTip(10, tipMessage)}
-                    disabled={loading || !wallet.connected}
-                    title={!wallet.connected ? 'Connect wallet first' : ''}
-                  >
-                    ${(10 * 0.01).toFixed(2)}
-                  </button>
-				  <button
-                    className="btn btn-secondary"
-                    onClick={() => handleTip(25, tipMessage)}
-                    disabled={loading || !wallet.connected}
-                    title={!wallet.connected ? 'Connect wallet first' : ''}
-                  >
-                    ${(25 * 0.01).toFixed(2)}
-                  </button>
+                  <div className="tip-buttons-row">
+                    <button
+                      className="btn btn-secondary"
+                      onClick={() => handleTip(1, tipMessage)}
+                      disabled={loading || !wallet.connected}
+                      title={!wallet.connected ? 'Connect wallet first' : ''}
+                    >
+                      ${(1 * 0.01).toFixed(2)}
+                    </button>
+                    <button
+                      className="btn btn-secondary"
+                      onClick={() => handleTip(5, tipMessage)}
+                      disabled={loading || !wallet.connected}
+                      title={!wallet.connected ? 'Connect wallet first' : ''}
+                    >
+                      ${(5 * 0.01).toFixed(2)}
+                    </button>
+                    <button
+                      className="btn btn-secondary"
+                      onClick={() => handleTip(10, tipMessage)}
+                      disabled={loading || !wallet.connected}
+                      title={!wallet.connected ? 'Connect wallet first' : ''}
+                    >
+                      ${(10 * 0.01).toFixed(2)}
+                    </button>
+                    <button
+                      className="btn btn-secondary"
+                      onClick={() => handleTip(25, tipMessage)}
+                      disabled={loading || !wallet.connected}
+                      title={!wallet.connected ? 'Connect wallet first' : ''}
+                    >
+                      ${(25 * 0.01).toFixed(2)}
+                    </button>
+                  </div>
+                  <div className="tip-buttons-row">
+                    <button
+                      className="btn btn-secondary"
+                      onClick={() => handleTip(100, tipMessage)}
+                      disabled={loading || !wallet.connected}
+                      title={!wallet.connected ? 'Connect wallet first' : ''}
+                    >
+                      $1.00
+                    </button>
+                    <button
+                      className="btn btn-secondary"
+                      onClick={() => handleTip(500, tipMessage)}
+                      disabled={loading || !wallet.connected}
+                      title={!wallet.connected ? 'Connect wallet first' : ''}
+                    >
+                      $5.00
+                    </button>
+                    <button
+                      className="btn btn-secondary"
+                      onClick={() => handleTip(1000, tipMessage)}
+                      disabled={loading || !wallet.connected}
+                      title={!wallet.connected ? 'Connect wallet first' : ''}
+                    >
+                      $10.00
+                    </button>
+                    <button
+                      className="btn btn-secondary"
+                      onClick={() => handleTip(2500, tipMessage)}
+                      disabled={loading || !wallet.connected}
+                      title={!wallet.connected ? 'Connect wallet first' : ''}
+                    >
+                      $25.00
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
           )}
         </div>
 
-        {/* Director Controls */}
-        <div className="control-group">
-          <button
-            className="control-btn glass"
-            onClick={() => {
-              if (tipJarOpen) {
-                setTipJarOpen(false)
-              }
-              setDirectorOpen(!directorOpen)
-            }}
-            disabled={loading}
-          >
-            <Video size={20} />
-            {directorOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-          </button>
-          
-          {directorOpen && (
-            <div className="dropdown glass">
-              <div className="dropdown-content">
-                <div className="tip-jar-text">Become the director</div>
-                <div className="tip-buttons">
-                  <button
-                    className="btn btn-secondary"
-                    onClick={() => handleDirector(1)}
-                    disabled={loading || !wallet.connected}
-                    title={!wallet.connected ? 'Connect wallet first' : ''}
-                  >
-                    ${(1).toFixed(2)}
-                  </button>
-                  <button
-                    className="btn btn-secondary"
-                    onClick={() => handleDirector(5)}
-                    disabled={loading || !wallet.connected}
-                    title={!wallet.connected ? 'Connect wallet first' : ''}
-                  >
-                    ${(5).toFixed(2)}
-                  </button>
-                  <button
-                    className="btn btn-secondary"
-                    onClick={() => handleDirector(10)}
-                    disabled={loading || !wallet.connected}
-                    title={!wallet.connected ? 'Connect wallet first' : ''}
-                  >
-                    ${(10).toFixed(2)}
-                  </button>
-				  <button
-                    className="btn btn-secondary"
-                    onClick={() => handleDirector(25)}
-                    disabled={loading || !wallet.connected}
-                    title={!wallet.connected ? 'Connect wallet first' : ''}
-                  >
-                    ${(25).toFixed(2)}
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Settings Button - only visible after successful director request */}
-        {directorRequestSuccessful && (
-          <div className="control-group">
-            <button
-              className="control-btn glass"
-              onClick={onOpenSettings}
-            >
-              <Settings size={20} />
-            </button>
-          </div>
-        )}
       </div>
     </div>
   )

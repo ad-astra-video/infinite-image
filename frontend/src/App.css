@@ -192,11 +192,13 @@
   position: absolute;
   top: 16px;
   left: 16px;
+  right: 16px;
   display: flex;
   gap: 12px;
   z-index: 100;
   flex-wrap: wrap;
-  max-width: 200px;
+  max-width: calc(var(--video-size) - 32px);
+  width: calc(var(--video-size) - 32px);
 }
 
 .control-group {
@@ -238,7 +240,10 @@
   position: absolute;
   top: calc(100% + 8px);
   left: 0;
-  min-width: 200px;
+  right: 0;
+  min-width: calc(var(--video-size) - 32px);
+  max-width: calc(var(--video-size) - 32px);
+  width: calc(var(--video-size) - 32px);
   z-index: 101;
   animation: slideUp 0.3s ease-out;
 }
@@ -249,8 +254,10 @@
   border-radius: 12px;
   padding: 16px;
   box-shadow: var(--shadow);
-  min-width: 320px;
-  max-width: 400px;
+  /* Constrain to video container bounds */
+  width: calc(var(--video-size) - 32px);
+  max-width: calc(var(--video-size) - 32px);
+  min-width: calc(var(--video-size) - 32px);
 }
 
 .tip-jar-text {
@@ -763,6 +770,65 @@
   background: var(--accent-primary);
 }
 
+/* Gold shiny animation for supporter tab after tip */
+.chat-tab.gold-shine {
+  background: linear-gradient(135deg, #DAA520 0%, #B8860B 25%, #DAA520 50%, #B8860B 75%, #DAA520 100%);
+  background-size: 200% 200%;
+  color: #000;
+  border-color: #DAA520;
+  font-weight: 600;
+  animation: goldShine 2s ease-in-out infinite, pulse 1s ease-in-out infinite;
+  box-shadow: 0 0 20px rgba(218, 165, 32, 0.6), 0 0 40px rgba(218, 165, 32, 0.4);
+}
+
+/* Permanent gold styling for supporter button (no animation) */
+.chat-tab.gold-permanent {
+  background: #DAA520;
+  color: #000;
+  border-color: #DAA520;
+  font-weight: 600;
+  box-shadow: 0 0 10px rgba(218, 165, 32, 0.4);
+}
+
+/* Room count badge styling */
+.room-count-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  background: var(--accent-secondary);
+  color: var(--text-primary);
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  border: 1px solid var(--accent-secondary);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+@keyframes goldShine {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+}
+
 .chat-content {
   display: flex;
   flex-direction: column;
@@ -951,18 +1017,6 @@
   transform: translateY(0);
 }
 
-.director-badge {
-  display: inline-block;
-  margin-top: 4px;
-  padding: 2px 6px;
-  background: rgba(138, 43, 226, 0.2);
-  border: 1px solid rgba(138, 43, 226, 0.5);
-  border-radius: 4px;
-  font-size: 11px;
-  font-weight: 500;
-  color: #8a2be2;
-}
-
 .chat-inputs {
   padding: 12px;
   border-top: 1px solid var(--border-color);
@@ -1064,17 +1118,35 @@
   cursor: pointer;
 }
 
-.director-info {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
-  padding: 6px 8px;
-  background: rgba(138, 43, 226, 0.1);
-  border: 1px solid rgba(138, 43, 226, 0.3);
-  border-radius: 4px;
+/* Tip buttons container - adaptive grid layout within video container */
+.tip-buttons {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(60px, 1fr));
+  gap: 6px;
+  width: 100%;
+  max-width: 100%;
+  /* Ensure container never exceeds available space */
+  box-sizing: border-box;
+}
+
+/* Each row contains buttons that adapt to container width */
+.tip-buttons-row {
+  display: contents;
+}
+
+/* Buttons with responsive sizing and readable font size */
+.tip-buttons .btn {
+  width: 100%;
+  min-width: 60px;
+  white-space: nowrap;
   font-size: 12px;
-  color: var(--text-secondary);
+  padding: 6px 8px;
+  /* Center text alignment */
+  text-align: center;
+  /* Prevent overflow */
+  box-sizing: border-box;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Mobile responsiveness for chat */
@@ -1119,13 +1191,13 @@
     width: 95vw;
     min-width: auto;
     max-width: none;
-    padding: 4px 8px;
-    height: 32px;
+    padding: 6px 10px;
+    height: 44px;
     margin: 0 auto 8px auto;
   }
 
   .player-column {
-    --toolbar-height: 32px;
+    --toolbar-height: 44px;
   }
   
   .wallet-connect-layout {
@@ -1158,12 +1230,7 @@
     padding: 4px 8px;
     font-size: 11px;
   }
-  
-  .tip-buttons {
-    flex-direction: column;
-    gap: 8px;
-  }
-  
+ 
   .modal-footer {
     flex-direction: column;
   }
@@ -1189,6 +1256,8 @@
     font-size: 9px;
     height: 24px;
   }
+
+  /* Remove old tip-buttons media query - new responsive system handles all screen sizes */
 }
 
 /* Additional glassmorphism effects */

@@ -15,5 +15,8 @@ export default defineConfig({
   },
   define: {
     'process.env': {}
+  },
+  proxy: {
+    '/api': 'http://localhost:4021'
   }
 })

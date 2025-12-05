@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { Send, MessageCircle, Users, Shield, Crown, Lock } from 'lucide-react'
 import { useWallet } from './WalletConnect'
-
-const API_BASE = 'http://localhost:4021'
+import { API_BASE } from '../utils/apiConfig'
 
 function ChatInterface() {
   const wallet = useWallet()
@@ -16,6 +15,8 @@ function ChatInterface() {
   const [userJoined, setUserJoined] = useState(false)
   const [lastMessageTime, setLastMessageTime] = useState(0)
   const [isSupporter, setIsSupporter] = useState(false)
+  const [tipSuccessAnimation, setTipSuccessAnimation] = useState(false)
+  const [roomCounts, setRoomCounts] = useState({})
   const messagesEndRef = useRef(null)
   const messageInputRef = useRef(null)
   const prevRoomRef = useRef(null)
@@ -25,6 +26,21 @@ function ChatInterface() {
     // Dispatch custom event to open tip jar in main app
     window.dispatchEvent(new CustomEvent('openTipJar'))
   }
+
+  // Listen for tip success events
+  useEffect(() => {
+    const handleTipSuccess = () => {
+      setIsSupporter(true)
+      setTipSuccessAnimation(true)
+      // Remove animation after 3 seconds
+      setTimeout(() => {
+        setTipSuccessAnimation(false)
+      }, 3000)
+    }
+
+    window.addEventListener('tipSuccess', handleTipSuccess)
+    return () => window.removeEventListener('tipSuccess', handleTipSuccess)
+  }, [])
 
   const messageTypes = {
     public: { icon: Users, label: 'Public', color: 'blue' },
@@ -102,6 +118,33 @@ function ChatInterface() {
             case 'connection':
               console.log('Connection established:', data.message)
               break
+            case 'historical_messages':
+              console.log('Received historical messages:', data.messages.length)
+              // Add historical messages to the messages state
+              setMessages(prev => {
+                try {
+                  // Filter out any duplicate messages that might already exist
+                  const existingIds = new Set(prev.map(m => m.id))
+                  const newMessages = data.messages.filter(m => !existingIds.has(m.id))
+                  
+                  // Sort messages by timestamp to maintain chronological order
+                  const allMessages = [...prev, ...newMessages].sort((a, b) =>
+                    new Date(a.timestamp) - new Date(b.timestamp)
+                  )
+                  
+                  return allMessages
+                } catch (err) {
+                  console.warn('Failed to process historical messages:', err)
+                  return [...prev, ...data.messages]
+                }
+              })
+              
+              // Update lastMessageTime if we received historical messages
+              if (data.messages && data.messages.length > 0) {
+                const lastMessage = data.messages[data.messages.length - 1]
+                setLastMessageTime(lastMessage.timestamp)
+              }
+              break
             case 'supporter_status':
               console.log('Supporter status:', data)
               if (data.userAddress === wallet.address || data.userAddress === wallet.loginAddress) {
@@ -125,12 +168,29 @@ function ChatInterface() {
                 }
                 return [...prev, data]
               })
+              
+              // Update lastMessageTime for new chat messages
+              setLastMessageTime(data.timestamp)
               break
             case 'user_joined':
               console.log('User joined:', data)
+              // Store room count for display
+              if (data.room && data.roomCount) {
+                setRoomCounts(prev => ({
+                  ...prev,
+                  [data.room]: data.roomCount
+                }))
+              }
               break
             case 'user_left':
               console.log('User left:', data)
+              // Update room count for display
+              if (data.room) {
+                setRoomCounts(prev => ({
+                  ...prev,
+                  [data.room]: Math.max(0, (prev[data.room] || 0) - 1)
+                }))
+              }
               break
             case 'error':
               console.error('WebSocket error:', data.message)
@@ -160,23 +220,33 @@ function ChatInterface() {
 
   // Join chat room when tab changes
   useEffect(() => {
-    // Always join the chat room when WebSocket is ready, even for anonymous users.
-    if (ws && connected && !userJoined) {
+    // Wait for SIWE authentication to complete before joining chat
+    if (ws && connected && !userJoined && wallet.isConnected) {
       const room = activeTab
       const userType = 'public'
+      
+      console.log('Joining chat:', {
+        walletAddress: wallet.address,
+        siweSessionToken: wallet.siweSessionToken,
+        siweValidated: wallet.siweValidated,
+        isConnected: wallet.isConnected
+      })
 
       ws.send(JSON.stringify({
         type: 'join_chat',
         room,
         userAddress: wallet.address || 'anon',
-        userType
+        userType,
+        sessionToken: wallet.siweSessionToken || null,
+        userSignature: wallet.loginSignature || null,
+        lastMessageTime: lastMessageTime || null
       }))
 
       // remember the room we've joined so we can leave it later
       prevRoomRef.current = room
       setUserJoined(true)
     }
-  }, [ws, connected, activeTab, userJoined])
+  }, [ws, connected, activeTab, userJoined, lastMessageTime, wallet.isConnected, wallet.siweSessionToken])
 
   // Leave previous chat room when the active tab changes
   useEffect(() => {
@@ -194,23 +264,11 @@ function ChatInterface() {
     }
   }, [ws, activeTab])
 
-  // Fetch initial messages when joining a room
-  const fetchMessages = async (room) => {
-    try {
-      const response = await fetch(`${API_BASE}/api/chat/messages/${room}`)
-      if (response.ok) {
-        const data = await response.json()
-        setMessages(data.messages || [])
-      }
-    } catch (error) {
-      console.error(`Failed to fetch ${room} messages:`, error)
-    }
-  }
-
-  // Load messages when joining a room
+  // Load messages when joining a room - WebSocket handles this automatically
   useEffect(() => {
     if (ws && userJoined) {
-      fetchMessages(activeTab)
+      // Historical messages are sent automatically via WebSocket when joining
+      console.log('Joining room via WebSocket, historical messages will be delivered automatically')
     }
   }, [ws, userJoined, activeTab])
 
@@ -265,8 +323,9 @@ function ChatInterface() {
         room: 'supporter',
         message: superChatMessage,
         messageType: 'supporter',
-        signature: wallet.loginSignature,
-        address: wallet.loginAddress
+        userSignature: wallet.loginSignature,
+        userAddress: wallet.loginAddress,
+        sessionToken: wallet.siweSessionToken
       })
 
       ws.send(msg)
@@ -326,10 +385,13 @@ function ChatInterface() {
         <div className="chat-tabs">
           {Object.entries(messageTypes).map(([key, type]) => {
             const Icon = type.icon
+            const isSupporterTab = key === 'supporter'
+            const showGoldAnimation = isSupporterTab && tipSuccessAnimation
+            const showGoldPermanent = isSupporterTab && isSupporter && !tipSuccessAnimation
             return (
               <button
                 key={key}
-                className={`chat-tab ${activeTab === key ? 'active' : ''}`}
+                className={`chat-tab ${activeTab === key ? 'active' : ''} ${showGoldAnimation ? 'gold-shine' : ''} ${showGoldPermanent ? 'gold-permanent' : ''}`}
                 onClick={async () => {
                   if (key === 'supporter' && wallet.isConnected) {
                     // Check if user has access to supporter chat via WebSocket
@@ -360,7 +422,9 @@ function ChatInterface() {
                   setMessages([]) // Clear messages when switching tabs
                 }}
               >
-                <Icon size={16} />
+                <div className="room-count-badge">
+                  {roomCounts[key] || 0}
+                </div>
                 {type.label}
               </button>
             )
@@ -386,9 +450,6 @@ function ChatInterface() {
                 </div>
                 <div className="message-content">
                   {message.content}
-                  {message.messageType === 'supporter' && (
-                    <span className="supporter-badge">Supporter Chat</span>
-                  )}
                 </div>
               </div>
             </div>
@@ -398,12 +459,6 @@ function ChatInterface() {
       </div>
 
       <div className="chat-inputs">
-        {activeTab === 'supporter' && wallet.loginSignature && (
-          <div className="login-success" style={{ marginTop: '8px', fontSize: '12px', color: 'var(--text-secondary)' }}>
-            Logged in successfully
-          </div>
-        )}
-
         <div className="input-group">
           <textarea
             ref={messageInputRef}
