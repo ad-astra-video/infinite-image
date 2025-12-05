@@ -18,6 +18,7 @@ class ChatRouter {
     this.logger = config.logger;
     this.router = express.Router();
     this.wss = null;
+    this.sessionCache = config.sessionCache; // SIWE session cache
     
     // Initialize bad words filter
     this.badWordsFilter = new BadWordsFilter();
@@ -38,12 +39,14 @@ class ChatRouter {
       public: {
         messages: [],
         connectedUsers: new Map(), // socket -> userData
-        maxMessages: 100
+        maxMessages: 1000,
+        maxUsers: 1000
       },
       supporter: {
         messages: [],
         connectedUsers: new Map(),
-        maxMessages: 100,
+        maxMessages: 1000,
+        maxUsers: 1000,
         allowedUsers: new Set(), // Users who have tipped
         userSignatures: new Map() // Store latest signature for each user
       }
@@ -58,10 +61,12 @@ class ChatRouter {
       const status = {
         public: {
           connectedUsers: this.chatRooms.public.connectedUsers.size,
+          maxUsers: this.chatRooms.public.maxUsers,
           messageCount: this.chatRooms.public.messages.length
         },
         supporter: {
           connectedUsers: this.chatRooms.supporter.connectedUsers.size,
+          maxUsers: this.chatRooms.supporter.maxUsers,
           messageCount: this.chatRooms.supporter.messages.length,
           allowedUsers: this.chatRooms.supporter.allowedUsers.size
         }
@@ -69,18 +74,7 @@ class ChatRouter {
       res.json({ status });
     });
 
-    // Get messages from a specific room
-    this.router.get('/messages/:room', (req, res) => {
-      const { room } = req.params;
-      if (!this.chatRooms[room]) {
-        return res.status(404).json({ error: 'Chat room not found' });
-      }
-      
-      res.json({
-        room,
-        messages: this.chatRooms[room].messages
-      });
-    });
+    // Messages are now delivered via WebSocket - no HTTP endpoint needed
 
     // Clear chat history (for moderation)
     this.router.post('/clear/:room', (req, res) => {
@@ -206,17 +200,76 @@ class ChatRouter {
     });
   }
 
+  /**
+   * Check if user is SIWE validated
+   * @param {string} address - Ethereum address
+   * @param {string} sessionToken - Session token (optional)
+   * @returns {boolean} Validation status
+   */
+  isSIWEValidated(address, sessionToken = null, userSignature = null) {
+    try {
+      this.logger.info(`SIWE validation: address=${address}, sessionToken=${sessionToken ? 'provided' : 'null'}, signature=${userSignature ? 'provided' : 'null'}`);
+      
+      // For chat validation, we just need to check if the user has a valid signature
+      // that matches their claimed address. No session caching needed.
+      if (userSignature && address && address !== 'anon') {
+        // Simple validation: if user has a signature and valid address, they're considered validated
+        // The actual signature verification happens during message sending, not during join
+        this.logger.info(`SIWE validation: user has signature and valid address - validated`);
+        return true;
+      }
+
+      this.logger.info(`SIWE validation failed: no signature or invalid address`);
+      return false;
+    } catch (error) {
+      this.logger.error('Error checking SIWE validation:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Get display name for user (address or validated username)
+   * @param {string} address - Ethereum address
+   * @param {string} sessionToken - Session token
+   * @returns {string} Display name
+   */
+  getDisplayName(address, sessionToken = null, userSignature = null) {
+    if (this.isSIWEValidated(address, sessionToken, userSignature)) {
+      // For validated users, show shortened address as "username"
+      return `${address.substring(0, 6)}...${address.substring(address.length - 4)}`;
+    }
+    // For non-validated users, show as anonymous
+    return 'anonymous';
+  }
+
   handleJoinChat(ws, data) {
-    const { room, userAddress, userType = 'public' } = data;
+    const { room, userAddress, userType = 'public', sessionToken, userSignature, lastMessageTime } = data;
     
     if (!this.chatRooms[room]) {
       this.sendError(ws, 'Invalid chat room');
       return;
     }
     
+    // Check SIWE validation for username display
+    const isValidated = this.isSIWEValidated(userAddress, sessionToken, userSignature);
+    
+    // Simplified logging
+    this.logger.info(`SIWE validation for ${userAddress}: ${isValidated ? 'validated' : 'anonymous'}`);
+    
+    const displayName = this.getDisplayName(userAddress, sessionToken, userSignature);
+    
     // Check permissions for supporter chat
     if (room === 'supporter' && !this.chatRooms.supporter.allowedUsers.has(userAddress)) {
       this.sendError(ws, 'Access denied: Supporter chat requires tip verification');
+      return;
+    }
+    
+    // Check if room has reached maximum user limit FIRST
+    const currentUserCount = this.chatRooms[room].connectedUsers.size;
+    const maxUsers = this.chatRooms[room].maxUsers;
+    
+    if (currentUserCount >= maxUsers) {
+      this.sendError(ws, `Room ${room} has reached maximum capacity of ${maxUsers} users`);
       return;
     }
     
@@ -229,21 +282,106 @@ class ChatRouter {
     this.chatRooms[room].connectedUsers.set(ws, {
       address: userAddress,
       type: userType,
-      room
+      room,
+      sessionToken: sessionToken || null,
+      signature: userSignature || null,
+      validated: isValidated,
+      displayName: displayName
     });
     
     // Store user info
-    ws.userData = { address: userAddress, type: userType, room };
+    ws.userData = {
+      address: userAddress,
+      type: userType,
+      room,
+      sessionToken: sessionToken || null,
+      signature: userSignature || null,
+      validated: isValidated,
+      displayName: displayName
+    };
     
-    // Notify user joined
+    // Send historical messages since lastMessageTime
+    this.sendHistoricalMessages(ws, room, lastMessageTime);
+    
+    // Notify user joined (with validation status and room count)
     this.broadcastToRoom(room, 'user_joined', {
       userAddress,
       userType,
+      validated: isValidated,
+      displayName: displayName,
+      room: room,
+      roomCount: this.chatRooms[room].connectedUsers.size,
       timestamp: new Date().toISOString()
     });
     
-    this.logger.info(`User ${userAddress} joined ${room} chat`);
-    this.sendMessage(ws, { type: 'join_success', room, message: `Joined ${room} chat successfully` });
+    this.logger.info(`User ${userAddress} (${displayName}) joined ${room} chat - SIWE validated: ${isValidated}`);
+    this.sendMessage(ws, {
+      type: 'join_success',
+      room,
+      message: `Joined ${room} chat successfully`,
+      validated: isValidated,
+      displayName: displayName
+    });
+  }
+
+  /**
+   * Send historical messages to user when joining a chat room
+   * @param {WebSocket} ws - The WebSocket connection
+   * @param {string} room - The chat room name
+   * @param {string} lastMessageTime - UTC timestamp of last message user has (optional)
+   */
+  sendHistoricalMessages(ws, room, lastMessageTime) {
+    this.logger.info(`sendHistoricalMessages called for room: ${room}, lastMessageTime: ${lastMessageTime}`);
+    
+    if (!this.chatRooms[room]) {
+      this.logger.warn(`Chat room ${room} not found`);
+      return;
+    }
+
+    let messages = [...this.chatRooms[room].messages];
+    this.logger.info(`Total messages in ${room}: ${messages.length}`);
+    
+    // Sort messages by timestamp (ascending order)
+    messages.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+    
+    // Filter messages since lastMessageTime if provided
+    if (lastMessageTime) {
+      try {
+        const lastTime = new Date(lastMessageTime);
+        this.logger.info(`Filtering messages since: ${lastTime.toISOString()}`);
+        if (!isNaN(lastTime.getTime())) {
+          const originalLength = messages.length;
+          messages = messages.filter(msg => new Date(msg.timestamp) > lastTime);
+          this.logger.info(`Filtered ${originalLength} messages to ${messages.length} since timestamp`);
+        } else {
+          this.logger.warn(`Invalid lastMessageTime: ${lastMessageTime}, returning all messages`);
+        }
+      } catch (error) {
+        this.logger.warn(`Exception parsing lastMessageTime: ${lastMessageTime}, returning all messages`, error);
+      }
+    } else {
+      this.logger.info(`No lastMessageTime provided, returning all messages`);
+    }
+    
+    // Limit historical messages to prevent overwhelming users
+    const maxHistoricalMessages = 1000;
+    if (messages.length > maxHistoricalMessages) {
+      messages = messages.slice(-maxHistoricalMessages);
+      this.logger.info(`Limited historical messages to ${maxHistoricalMessages} for room ${room}`);
+    }
+    
+    // Send historical messages to user
+    if (messages.length > 0) {
+      this.sendMessage(ws, {
+        type: 'historical_messages',
+        room,
+        messages: messages,
+        timestamp: new Date().toISOString()
+      });
+      this.logger.info(`Sent ${messages.length} historical messages to ${ws.userData?.address || 'anonymous'} for room ${room}`);
+    } else {
+      this.logger.info(`No historical messages to send for room ${room}`);
+    }
   }
 
   handleIsSupporter(ws, data) {
@@ -334,7 +472,7 @@ class ChatRouter {
   }
 
   handleChatMessage(ws, data) {
-    const { room, message, messageType = 'public', userSignature, userAddress } = data;
+    const { room, message, messageType = 'public', userSignature, userAddress, sessionToken } = data;
     this.logger.info(`Received chat message for data=${JSON.stringify(data)}`);
     if (!this.chatRooms[room]) {
       this.sendError(ws, 'Invalid chat room');
@@ -344,6 +482,10 @@ class ChatRouter {
     // Update user address if provided (allows wallet connection after joining)
     if (userAddress && userAddress !== 'anon') {
       ws.userData.address = userAddress;
+      // Update SIWE validation status
+      const isValidated = this.isSIWEValidated(userAddress, sessionToken);
+      ws.userData.validated = isValidated;
+      ws.userData.displayName = this.getDisplayName(userAddress, sessionToken, userSignature);
     }
     
     // Check permissions for supporter chat
@@ -382,18 +524,26 @@ class ChatRouter {
       this.logger.warn(`Filtered bad words from message in ${room} by ${ws.userData?.address || 'anonymous'}: original="${message}" filtered="${filteredContent}"`);
     }
     
+    // Determine sender display name based on SIWE validation
+    const senderAddress = ws.userData?.address || 'anonymous';
+    const isValidated = ws.userData?.validated || false;
+    const displayName = this.getDisplayName(senderAddress, sessionToken, ws.userData?.signature);
+    
     // Create message object with filtered content
     const chatMessage = {
       id: uuidv4(),
       content: filteredContent,
       originalContent: message !== filteredContent ? message : null, // Store original if filtered
-      sender: ws.userData?.address || 'anonymous',
+      sender: senderAddress,
+      senderDisplayName: displayName, // Display name for UI
       senderType: ws.userData?.type || 'public',
+      senderValidated: isValidated, // SIWE validation status
       messageType,
       room,
       timestamp: new Date().toISOString(),
-      signature: signature || null, // Store signature for supporter chat
-      filtered: message !== filteredContent // Flag if message was filtered
+      signature: userSignature || null, // Store signature for supporter chat
+      filtered: message !== filteredContent, // Flag if message was filtered
+      sessionToken: sessionToken || null // For validation
     };
     
     // Add to message history
@@ -407,7 +557,7 @@ class ChatRouter {
     // Broadcast to all users in the room
     this.broadcastToRoom(room, 'chat_message', chatMessage);
     
-    this.logger.info(`Chat message in ${room} from ${chatMessage.sender}: ${filteredContent}`);
+    this.logger.info(`Chat message in ${room} from ${displayName} (${senderAddress}): ${filteredContent} - SIWE validated: ${isValidated}`);
   }
 
   handleDisconnect(ws) {
@@ -422,6 +572,7 @@ class ChatRouter {
         if (ws.userData && ws.userData.address) {
           this.broadcastToRoom(room, 'user_left', {
             userAddress: ws.userData.address,
+            room: room,
             timestamp: new Date().toISOString()
           });
         }
@@ -463,9 +614,24 @@ class ChatRouter {
     // Verify tip amount meets minimum requirement
     const minTipAmount = 0.01; // $0.01 minimum for supporter chat
     if (tipAmount >= minTipAmount) {
-      this.chatRooms.supporter.allowedUsers.add(userAddress);
+      const wasNewUser = !this.chatRooms.supporter.allowedUsers.has(userAddress);
+      if (wasNewUser) {
+        this.chatRooms.supporter.allowedUsers.add(userAddress);
+        this.logger.info(`User ${userAddress} added to supporter chat with tip amount: $${tipAmount}`);
+        
+        // Broadcast user_joined message to supporter room for room count update
+        this.broadcastToRoom('supporter', 'user_joined', {
+          userAddress,
+          userType: 'supporter',
+          validated: true,
+          displayName: this.getDisplayName(userAddress, null, userSignature),
+          room: 'supporter',
+          roomCount: this.chatRooms.supporter.connectedUsers.size,
+          timestamp: new Date().toISOString()
+        });
+      }
+      //keep latest signature
       this.chatRooms.supporter.userSignatures.set(userAddress, userSignature);
-      this.logger.info(`User ${userAddress} added to supporter chat with tip amount: $${tipAmount}`);
     } else {
       this.logger.warn(`Tip amount $${tipAmount} below minimum $${minTipAmount} for supporter chat`);
     }

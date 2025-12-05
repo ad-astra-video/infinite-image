@@ -17,11 +17,12 @@ const rateLimit = require('express-rate-limit');
 // Create logger first
 const logger = {
   info: (...args) => console.log('[INFO]', ...args),
+  warn: (...args) => console.warn('[WARN]', ...args),
   error: (...args) => console.error('[ERROR]', ...args)
 };
 
 // Get configuration from environment
-const APP_NAME = process.env.APP_NAME || 'X402-Gateway';
+const APP_NAME = process.env.APP_NAME || 'X402-Stream';
 const GATEWAY_API_KEY= process.env.GATEWAY_API_KEY;
 const GATEWAY_URL = process.env.GATEWAY_URL || "https://gateway.muxion.video";
 const FACILITATOR_URL = process.env.FACILITATOR_URL;
@@ -61,14 +62,21 @@ if (!depositAddress || !FACILITATOR_URL || !SWEEP_ADDRESS) {
   throw new Error("Missing required environment variables (DEPOSIT_ADDRESS, FACILITATOR_URL, SWEEP_ADDRESS)");
 }
 
-const { paymentMiddleware } = require('x402-express');
 const { StreamRouter } = require('./src/routes/streamRoutes');
-const { DirectorRouter } = require('./src/routes/directorRoutes');
 const { ChatRouter } = require('./src/routes/chatRoutes');
+const { AuthRouter } = require('./src/routes/authRoutes');
+const { TipRouter } = require('./src/routes/tipRoutes');
 
-// Create chat router first for socket.io chat functionality
+const authRouter = new AuthRouter({
+  logger,
+});
+
+const SessionCache = require('./src/auth/sessionCache');
+const sessionCache = new SessionCache();
+
 const chatRouter = new ChatRouter({
   logger,
+  sessionCache,
 });
 
 // Create route instances
@@ -80,14 +88,6 @@ const streamRouter = new StreamRouter({
   network: process.env.NETWORK || "base-sepolia"
 });
 
-// Create director router for director access and payment functionality
-const directorRouter = new DirectorRouter({
-  logger,
-  depositAddress,
-  depositPrivateKey,
-  facilitatorUrl: FACILITATOR_URL,
-  network: process.env.NETWORK || "base-sepolia"
-});
 
 // Create the app and mount routes
 const app = express();
@@ -101,85 +101,7 @@ const usdcAddresses = {
 };
 const usdcAddress = usdcAddresses[NETWORK] || usdcAddresses["base-sepolia"];
 
-// Configure x402 payment middleware for tip endpoints
-app.use(paymentMiddleware(
-    depositAddress,
-    {
-      "/api/tip/1": {
-        price: "$0.01",
-        network: NETWORK,
-        config: {
-          description: "Tip $0.01 USDC for level 1 super chat",
-          asset: {
-            address: usdcAddress,
-            decimals: 6,
-            eip712: {
-              name: "USD Coin",
-              version: "2"
-            }
-          }
-        }
-      },
-      "/api/tip/5": {
-        price: "$0.05",
-        network: NETWORK,
-        config: {
-          description: "Tip $0.05 USDC for level 5 super chat",
-          asset: {
-            address: usdcAddress,
-            decimals: 6,
-            eip712: {
-              name: "USD Coin",
-              version: "2"
-            }
-          }
-        }
-      },
-      "/api/tip/10": {
-        price: "$0.10",
-        network: NETWORK,
-        config: {
-          description: "Tip $0.10 USDC for level 10 super chat",
-          asset: {
-            address: usdcAddress,
-            decimals: 6,
-            eip712: {
-              name: "USD Coin",
-              version: "2"
-            }
-          }
-        }
-      },
-      "/api/tip/25": {
-        price: "$0.25",
-        network: NETWORK,
-        config: {
-          description: "Tip $0.25 USDC for level 25 super chat",
-          asset: {
-            address: usdcAddress,
-            decimals: 6,
-            eip712: {
-              name: "USD Coin",
-              version: "2"
-            }
-          }
-        }
-      }
-    },
-    {
-      url: FACILITATOR_URL
-    }
-  )
-);
-
-// Mount routes to the app
-app.use('/api/chat', chatRouter.getRouter());
-app.use('/api/stream', streamRouter.getRouter());
-app.use('/api/director', directorRouter.getRouter());
-
-logger.info('Routes mounted: /api/chat, /api/messages, /api/stream, /api/tip, /api/director');
-
-// Middleware
+// Middleware - MUST be before routes
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
@@ -203,6 +125,24 @@ app.use(cors({
 }));
 app.use(express.json());
 
+
+// Mount tip router (contains payment middleware and tip endpoints)
+const tipRouter = new TipRouter({
+  logger,
+  depositAddress,
+  depositPrivateKey,
+  facilitatorUrl: FACILITATOR_URL,
+  network: NETWORK,
+  usdcAddress,
+  chatRouter
+});
+app.use('/', tipRouter.getRouter());
+// Mount routes to the app
+app.use('/api/auth', authRouter.getRouter());
+app.use('/api/chat', chatRouter.getRouter());
+app.use('/api/stream', streamRouter.getRouter());
+logger.info('Routes mounted: /api/auth, /api/chat, /api/messages, /api/stream, /api/tip');
+
 // Rate limiting
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -224,105 +164,7 @@ if (fs.existsSync(frontendDist)) {
   logger.info(`Frontend dist not found at ${frontendDist}; root route not served`);
 }
 
-// Global state - tipMsgs still needed for tip functionality
-let tipMsgs = [];
-
-// Tip request validation class
-class TipRequest {
-  constructor(data = {}) {
-    this.msg = data.msg ?? ''; // default to empty string
-    this.userAddress = data.userAddress ?? '';
-    this.userSignature = data.userSignature ?? '';
-  }
-}
-
-app.post('/api/tip/1', (req, res) => {
-  try {
-    const tipRequest = new TipRequest(req.body);
-    tipMsgs.push({ msg: tipRequest.msg, level: 1, ts: Date.now() / 1000 });
-    
-    // Add user to supporter chat if available
-    if (tipRequest.userAddress) {
-      chatRouter.addSupporterUser(tipRequest.userAddress, tipRequest.userSignature, 0.01);
-    }
-    
-    res.json({
-      tip: {
-        amount_usd: 0.01,
-        status: "success"
-      }
-    });
-  } catch (error) {
-    logger.error(`Tip 1 failed: ${error.message}`);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post('/api/tip/5', (req, res) => {
-  try {
-    const tipRequest = new TipRequest(req.body);
-    tipMsgs.push({ msg: tipRequest.msg, level: 5, ts: Date.now() / 1000 });
-    
-    // Add user to supporter chat if available
-    if (req.body.userAddress) {
-      chatRouter.addSupporterUser(req.body.userAddress, 0.05);
-    }
-    
-    res.json({
-      tip: {
-        amount_usd: 0.05,
-        status: "success"
-      }
-    });
-  } catch (error) {
-    logger.error(`Tip 5 failed: ${error.message}`);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post('/api/tip/10', (req, res) => {
-  try {
-    const tipRequest = new TipRequest(req.body);
-    tipMsgs.push({ msg: tipRequest.msg, level: 10, ts: Date.now() / 1000 });
-    
-    // Add user to supporter chat if available
-    if (req.body.userAddress) {
-      chatRouter.addSupporterUser(req.body.userAddress, 0.1);
-    }
-    
-    res.json({
-      tip: {
-        amount_usd: 0.1,
-        status: "success"
-      }
-    });
-  } catch (error) {
-    logger.error(`Tip 10 failed: ${error.message}`);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post('/api/tip/25', (req, res) => {
-  try {
-    const tipRequest = new TipRequest(req.body);
-    tipMsgs.push({ msg: tipRequest.msg, level: 25, ts: Date.now() / 1000 });
-    
-    // Add user to supporter chat if available
-    if (req.body.userAddress) {
-      chatRouter.addSupporterUser(req.body.userAddress, 0.25);
-    }
-    
-    res.json({
-      tip: {
-        amount_usd: 0.25,
-        status: "success"
-      }
-    });
-  } catch (error) {
-    logger.error(`Tip 25 failed: ${error.message}`);
-    res.status(500).json({ error: error.message });
-  }
-});
+// Tip endpoints (payment middleware moved to `./src/routes/tipRoutes.js`)
 
 // Models (equivalent to Pydantic models)
 class PromptRequest {
@@ -379,7 +221,7 @@ server.listen(PORT, () => {
   // Start background sweep task
   usdcSweep.startSweepTask();
   
-  logger.info("x402-gateway stream server initialized successfully");
+  logger.info("x402-Stream stream server initialized successfully");
 });
 
 // Graceful shutdown handler - perform final USDC sweep on server close
