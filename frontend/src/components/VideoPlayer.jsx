@@ -73,7 +73,7 @@ function VideoPlayer({
       setLoading(false)
       return
     }
-    const tipBody = { "msg": message, "userAddress": wallet.address || wallet.loginAddress, "userSignature": wallet.loginSignature || '' }
+    const tipBody = { "msg": message, "userAddress": wallet.address || wallet.loginAddress }
     try {
       const response = await fetch(`${API_BASE}/api/tip/${amount}`, {
         method: 'POST',

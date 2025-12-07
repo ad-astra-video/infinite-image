@@ -898,6 +898,11 @@
   color: var(--text-primary);
 }
 
+.sender .lucide-crown {
+  color: #DAA520;
+  filter: drop-shadow(0 0 4px rgba(218, 165, 32, 0.4));
+}
+
 .you-badge {
   display: inline-block;
   padding: 2px 6px;
@@ -1020,6 +1025,55 @@
 .chat-inputs {
   padding: 12px;
   border-top: 1px solid var(--border-color);
+}
+
+.cooldown-timer {
+  margin-bottom: 8px;
+  padding: 8px 12px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cooldown-message {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.cooldown-icon {
+  color: #ef4444;
+  animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/* Chat tab disabled state */
+.chat-tab.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  position: relative;
+}
+
+.chat-tab.disabled:hover {
+  opacity: 0.6;
+}
+
+.lock-icon {
+  margin-left: 4px;
+  color: var(--text-secondary);
 }
 
 .input-section {

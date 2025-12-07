@@ -5,6 +5,7 @@ import { Wallet, CheckCircle, AlertTriangle, DollarSign, X } from 'lucide-react'
 import { buildX402TypedData } from '../utils/x402'
 import { API_BASE } from '../utils/apiConfig'
 import { SiweMessage } from 'siwe'
+import EphemeralKeyManager from '../utils/EphemeralKeyManager'
 
 // Comprehensive Wallet Context - single source of truth for all wallet data
 // Default to `null` so using the hook outside a provider throws early and
@@ -22,6 +23,11 @@ export function WalletProvider({ children }) {
   const { signTypedDataAsync } = useSignTypedData()
   const { signMessageAsync } = useSignMessage()
   const accountRef = useRef({ address, isConnected, chain: networkChain || chain })
+  
+  // Enhanced authentication state
+  const [ephemeralManager, setEphemeralManager] = useState(null)
+  const [enhancedAuth, setEnhancedAuth] = useState({ authenticated: false, session: null })
+  
   // App name state from backend
   const [appName, setAppName] = useState('X402-Stream')
 
@@ -97,73 +103,29 @@ export function WalletProvider({ children }) {
   }, [address, isConnected, chain, networkChain])
 
   // SIWE Authentication state management
-  const [loginSignature, setLoginSignature] = useState(null)
   const [loginAddress, setLoginAddress] = useState(null)
   const [loginPrompted, setLoginPrompted] = useState(false)
-  const [siweSessionToken, setSiweSessionToken] = useState(null)
-  const [siweValidated, setSiweValidated] = useState(false)
-
-  // Import SIWE cache utility - load once and store in state
-  const [siweCache, setSiweCache] = useState(null)
+    const [siweValidated, setSiweValidated] = useState(false)
   
-  useEffect(() => {
-    if (typeof window !== 'undefined' && !siweCache) {
-      import('../utils/siweCache')
-        .then(module => setSiweCache(module.default))
-        .catch(err => console.warn('Failed to load SIWE cache:', err))
-    }
-  }, [siweCache])
-
-  // Restore cached SIWE session on wallet connection
-  useEffect(() => {
-    if (isConnected && address && siweCache && !loginSignature) {
-      const cachedSession = siweCache.isValidSession(address)
-      
-      if (cachedSession.valid) {
-        console.log('Restoring cached SIWE session for address:', address)
-        // Restore session from cache
-        setLoginSignature(cachedSession.signature || null)
-        setLoginAddress(cachedSession.address)
-        setSiweSessionToken(cachedSession.token)
-        setSiweValidated(true)
-        setLoginPrompted(true)
-      }
-    }
-  }, [isConnected, address, siweCache, loginSignature])
-
   // Clear authentication state when wallet disconnects
   useEffect(() => {
     if (!isConnected) {
       // Clear all SIWE authentication state
-      setLoginSignature(null)
       setLoginAddress(null)
       setLoginPrompted(false)
-      setSiweSessionToken(null)
       setSiweValidated(false)
-      
-      // Clear cached session from localStorage
-      if (siweCache && siweCache.handleWalletDisconnect) {
-        siweCache.handleWalletDisconnect()
-      }
     }
-  }, [isConnected, siweCache])
+  }, [isConnected])
 
   // Clear authentication state when wallet address changes
   useEffect(() => {
     if (isConnected && address && loginAddress && address.toLowerCase() !== loginAddress.toLowerCase()) {
       // Address changed - clear authentication state
-      setLoginSignature(null)
       setLoginAddress(null)
       setLoginPrompted(false)
-      setSiweSessionToken(null)
       setSiweValidated(false)
-      
-      // Clear cached session from localStorage
-      if (siweCache && siweCache.handleAddressChange) {
-        siweCache.handleAddressChange(address)
-      }
     }
-  }, [address, loginAddress, isConnected, siweCache])
+  }, [address, loginAddress, isConnected])
 
   // Function to perform SIWE authentication
   const performSIWEAuthentication = useCallback(async () => {
@@ -175,119 +137,9 @@ export function WalletProvider({ children }) {
     if (!signMessageAsync) {
       throw new Error('Wallet signing functionality not available')
     }
-
-    try {
-      console.log('=== SIWE Authentication Start ===')
-      console.log('Wallet address:', address)
-      console.log('API_BASE:', API_BASE)
-      
-      // Request SIWE message from backend
-      console.log('1. Requesting SIWE nonce from backend...')
-      const siweResponse = await fetch(`${API_BASE}/api/auth/siwe/nonce`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      })
-
-      console.log('SIWE nonce response status:', siweResponse.status)
-      
-      if (!siweResponse.ok) {
-        const errorText = await siweResponse.text()
-        console.error('SIWE nonce request failed:', errorText)
-        throw new Error(`Failed to get SIWE message from backend: ${siweResponse.status}`)
-      }
-
-      const siweData = await siweResponse.json()
-      console.log('SIWE nonce response data:', siweData)
-      
-      if (!siweData.success) {
-        console.error('SIWE nonce generation failed:', siweData)
-        throw new Error(siweData.error || 'Failed to generate SIWE nonce')
-      }
-
-      console.log('2. SIWE nonce received:', siweData.data.nonce)
-
-      // Construct SIWE message using SiweMessage class
-      console.log('3. Constructing SIWE message...')
-      const siweMessage = new SiweMessage({
-        domain: window.location.host,
-        address: address,
-        statement: 'Sign in with Ethereum to access chat features',
-        uri: window.location.origin,
-        version: '1',
-        chainId: networkChain?.id || chain?.id || 84532,
-        nonce: siweData.data.nonce
-      })
-      
-      // Prepare the SIWE message for signing
-      const preparedMessage = siweMessage.prepareMessage()
-      console.log('4. SIWE message prepared:', preparedMessage)
-      
-      // Sign the prepared SIWE message with wallet
-      console.log('5. Prompting wallet to sign SIWE message...')
-      const signature = await signMessageAsync({ message: preparedMessage })
-      console.log('6. Signature received from wallet:', signature)
-      
-      // Verify signature with backend
-      console.log('7. Verifying signature with backend...')
-      const verifyResponse = await fetch(`${API_BASE}/api/auth/verify`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          signature: signature,
-          siweMessage: siweMessage,
-          address: address
-        })
-      })
-
-      console.log('Backend verification response status:', verifyResponse.status)
-      
-      if (!verifyResponse.ok) {
-        const errorText = await verifyResponse.text()
-        console.error('SIWE verification request failed:', errorText)
-        throw new Error(`Failed to verify SIWE signature: ${verifyResponse.status}`)
-      }
-
-      const verifyData = await verifyResponse.json()
-      console.log('Backend verification response data:', verifyData)
-      
-      if (!verifyData.success) {
-        console.error('SIWE verification failed:', verifyData)
-        throw new Error(verifyData.error || 'SIWE signature verification failed')
-      }
-
-      console.log('8. SIWE verification successful! Session token:', verifyData.data.token)
-
-      // Cache session token
-      if (siweCache) {
-        siweCache.cacheSession(verifyData.data)
-        console.log('9. Session cached in frontend')
-      }
-
-      setLoginSignature(signature)
-      setLoginAddress(address)
-      setSiweSessionToken(verifyData.data.token)
-      setSiweValidated(true)
-      setLoginPrompted(true)
-
-      console.log('=== SIWE Authentication Complete ===')
-
-      return {
-        signature,
-        address,
-        sessionToken: verifyData.data.token,
-        validated: true
-      }
-    } catch (error) {
-      console.error('=== SIWE Authentication Failed ===')
-      console.error('Error message:', error.message)
-      console.error('Error stack:', error.stack)
-      throw error
-    }
-  }, [isConnected, address, signMessageAsync, chain, networkChain, siweCache])
+    
+    return await performEnhancedSIWE()
+  }, [isConnected, address, signMessageAsync, chain, networkChain])
 
   // Wrapper function for SIWE authentication - provides consistent naming
   const createLoginSignature = useCallback(async () => {
@@ -347,40 +199,227 @@ export function WalletProvider({ children }) {
     return { authorization: typedData.message, signature: signature, x402Version: paymentRequirements.x402Version || 1, x402scheme: payReq.scheme || 'exact', network: payReq.network || 'base-sepolia' }
   }, [isConnected, signTypedDataAsync])
 
+  // Enhanced SIWE + Ephemeral Delegation Authentication
+  const performEnhancedSIWE = useCallback(async () => {
+    console.log('🔍 DEBUG: performEnhancedSIWE called')
+    console.log('🔍 DEBUG: isConnected:', isConnected, 'address:', address)
+    
+    if (!isConnected || !address) {
+      throw new Error('Wallet not connected')
+    }
+
+    try {
+      console.log('=== Enhanced SIWE + Ephemeral Delegation Start ===')
+      console.log('🔍 DEBUG: Starting SIWE process for address:', address)
+      
+      // Check Web Crypto availability
+      if (!EphemeralKeyManager.isWebCryptoAvailable()) {
+        throw new Error('Web Crypto API not available')
+      }
+
+      // Generate ephemeral wallet
+      console.log('1. Generating ephemeral wallet...')
+      const ephemeralManager = new EphemeralKeyManager()
+      const ephemeralPublicKey = await ephemeralManager.generateEphemeralWallet()
+      console.log('Ephemeral public key:', ephemeralPublicKey)
+
+      // Request SIWE nonce with ephemeral key binding
+      console.log('2. Requesting SIWE nonce with ephemeral key binding...')
+      const nonceResponse = await fetch(`${API_BASE}/api/auth/siwe/nonce`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ephemeralPublicKey: ephemeralPublicKey })
+      })
+
+      const nonceData = await nonceResponse.json()
+      if (!nonceData.success) {
+        throw new Error(nonceData.error || 'Failed to generate nonce')
+      }
+
+      const { nonce } = nonceData.data
+      console.log('3. SIWE nonce received:', nonce)
+
+      // Create SIWE message with delegation
+      console.log('4. Creating SIWE message with ephemeral delegation...')
+      const delegationData = `ephemeralPublicKey=${ephemeralPublicKey}`;
+      
+      const siweMessage = new SiweMessage({
+        domain: window.location.host,
+        address: address, // Main wallet address signs the SIWE
+        statement: `Authorize ephemeral key binding to sign chat messages: ${delegationData}`,
+        uri: window.location.origin,
+        version: '1',
+        chainId: networkChain?.id || chain?.id || 84532,
+        nonce: nonce,
+        issuedAt: new Date().toISOString(),
+        expirationTime: new Date(Date.now() + 30 * 60 * 1000).toISOString()
+      })
+
+      // Sign SIWE message
+      console.log('5. Signing SIWE message with main wallet...')
+      const preparedMessage = siweMessage.prepareMessage()
+      const signature = await signMessageAsync({ message: preparedMessage })
+      console.log('6. SIWE signature received:', signature)
+
+      // Verify with backend
+      console.log('7. Verifying SIWE + delegation with backend...')
+      const verifyResponse = await fetch(`${API_BASE}/api/auth/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ signature, siweMessage, address })
+      })
+
+      const verificationData = await verifyResponse.json()
+      console.log('🔍 DEBUG: Backend verification response:', verificationData)
+      if (!verificationData.success) {
+        console.error('🔍 DEBUG: SIWE verification failed:', verificationData.error)
+        throw new Error(verificationData.error || 'SIWE verification failed')
+      }
+
+      console.log('8. Enhanced SIWE authentication successful!')
+      console.log('🔍 DEBUG: Setting loginAddress to:', address)
+      console.log('🔍 DEBUG: Current loginAddress state before set:', loginAddress)
+      setLoginAddress(address)
+      console.log('🔍 DEBUG: loginAddress set, current state:', address)
+      setLoginPrompted(true)
+      setSiweValidated(true)
+
+      // Store ephemeral manager and session data
+      setEphemeralManager(ephemeralManager)
+      setEnhancedAuth({
+        authenticated: true,
+        ephemeralKey: ephemeralPublicKey
+      })
+
+      return {
+        success: true,
+        ephemeralManager,
+        address: address
+      }
+    } catch (error) {
+      console.error('Enhanced SIWE authentication failed:', error)
+      throw error
+    }
+  }, [isConnected, address, signMessageAsync, networkChain, chain])
+
+  // Sign message with ephemeral key (for chat messages)
+  const signWithEphemeralKey = useCallback(async (message) => {
+    if (!ephemeralManager || !ephemeralManager.isReady()) {
+      throw new Error('Ephemeral key manager not ready')
+    }
+
+    try {
+      const { signature, counter } = await ephemeralManager.signMessage(message)
+      return { signature, counter }
+    } catch (error) {
+      console.error('Ephemeral key signing failed:', error)
+      throw error
+    }
+  }, [ephemeralManager])
+
+  // Check session status
+  const checkSessionStatus = useCallback(async () => {
+    try {
+      const response = await fetch(`${API_BASE}/api/auth/session/status`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' }
+      })
+
+      const data = await response.json()
+      if (data.success) {
+        setEnhancedAuth({
+          authenticated: data.data.authenticated,
+          session: data.data,
+          address: data.data.address
+        })
+        return data.data
+      }
+      return null
+    } catch (error) {
+      console.error('Session status check failed:', error)
+      return null
+    }
+  }, [])
+
+  // Secure logout
+  const performSecureLogout = useCallback(async () => {
+    try {
+      await fetch(`${API_BASE}/api/auth/logout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      })
+
+      // Clear ephemeral key manager
+      if (ephemeralManager) {
+        ephemeralManager.clear()
+      }
+
+      // Reset state
+      setEphemeralManager(null)
+      setEnhancedAuth({ authenticated: false, session: null })
+
+      console.log('Secure logout completed')
+    } catch (error) {
+      console.error('Secure logout failed:', error)
+      throw error
+    }
+  }, [ephemeralManager])
+
   // Context value - comprehensive wallet state
-  const contextValue = useMemo(() => ({
-    // Account data
-    address,
-    isConnected,
-    chain: networkChain || chain,
+  const contextValue = useMemo(() => {
+    console.log('🔍 DEBUG: Computing context value')
+    console.log('🔍 DEBUG: loginAddress state:', loginAddress)
+    console.log('🔍 DEBUG: siweValidated state:', siweValidated)
+    console.log('🔍 DEBUG: enhancedAuth state:', enhancedAuth)
+    
+    const value = {
+      // Account data
+      address,
+      isConnected,
+      chain: networkChain || chain,
 
-    // Balance data
-    usdcBalance,
-    usdcBalanceLoading: usdcLoading,
-    usdcBalanceError: usdcError,
+      // Balance data
+      usdcBalance,
+      usdcBalanceLoading: usdcLoading,
+      usdcBalanceError: usdcError,
 
-    // Signing functionality
-    signX402,
+      // Signing functionality
+      signX402,
 
-    // Login signature for super chat verification
-    loginSignature,
-    loginAddress,
-    createLoginSignature,
-    siweSessionToken,
-    siweValidated,
+      // Enhanced authentication
+      performEnhancedSIWE,
+      signWithEphemeralKey,
+      checkSessionStatus,
+      performSecureLogout,
+      enhancedAuth,
+      ephemeralManager,
 
-    // Manual refetch hook for USDC balance
-    refetchUsdc,
+      // Manual refetch hook for USDC balance
+      refetchUsdc,
 
-    // Connection state
-    connected,
+      // Connection state
+      connected,
 
-    // App name from backend
-    appName,
+      // App name from backend
+      appName,
 
-    // Loading states
-    isLoading: usdcLoading,
-  }), [
+      // Loading states
+      isLoading: usdcLoading,
+      
+      // Authentication state - FIXED: These were missing from the context!
+      loginAddress,
+      createLoginSignature,
+      siweValidated,
+    }
+    
+    console.log('🔍 DEBUG: Context value computed:', {
+      loginAddress: value.loginAddress,
+      siweValidated: value.siweValidated,
+      enhancedAuth: value.enhancedAuth
+    })
+    
+    return value
+  }, [
     address,
     isConnected,
     chain,
@@ -388,10 +427,14 @@ export function WalletProvider({ children }) {
     usdcLoading,
     usdcError,
     signX402,
-    loginSignature,
+    performEnhancedSIWE,
+    signWithEphemeralKey,
+    checkSessionStatus,
+    performSecureLogout,
+    enhancedAuth,
+    ephemeralManager,
     loginAddress,
     createLoginSignature,
-    siweSessionToken,
     siweValidated,
     connected,
     appName,
