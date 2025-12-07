@@ -22,7 +22,7 @@ class TipRouter {
           price: "$0.01",
           network: this.network,
           config: {
-            description: "Tip $0.01 USDC for level 1 super chat",
+            description: "Tip $0.01 USDC for level 1 supporter chat",
             asset: {
               address: this.usdcAddress,
               decimals: 6,
@@ -34,7 +34,7 @@ class TipRouter {
           price: "$0.05",
           network: this.network,
           config: {
-            description: "Tip $0.05 USDC for level 5 super chat",
+            description: "Tip $0.05 USDC for level 5 supporter chat",
             asset: { address: this.usdcAddress, decimals: 6, eip712: { name: "USD Coin", version: "2" } }
           }
         },
@@ -42,7 +42,7 @@ class TipRouter {
           price: "$0.10",
           network: this.network,
           config: {
-            description: "Tip $0.10 USDC for level 10 super chat",
+            description: "Tip $0.10 USDC for level 10 supporter chat",
             asset: { address: this.usdcAddress, decimals: 6, eip712: { name: "USD Coin", version: "2" } }
           }
         },
@@ -50,7 +50,7 @@ class TipRouter {
           price: "$0.25",
           network: this.network,
           config: {
-            description: "Tip $0.25 USDC for level 25 super chat",
+            description: "Tip $0.25 USDC for level 25 supporter chat",
             asset: { address: this.usdcAddress, decimals: 6, eip712: { name: "USD Coin", version: "2" } }
           }
         },
@@ -58,7 +58,7 @@ class TipRouter {
           price: "$1.00",
           network: this.network,
           config: {
-            description: "Tip $1.00 USDC for level 100 super chat",
+            description: "Tip $1.00 USDC for level 100 supporter chat",
             asset: { address: this.usdcAddress, decimals: 6, eip712: { name: "USD Coin", version: "2" } }
           }
         },
@@ -66,7 +66,7 @@ class TipRouter {
           price: "$5.00",
           network: this.network,
           config: {
-            description: "Tip $5.00 USDC for level 500 super chat",
+            description: "Tip $5.00 USDC for level 500 supporter chat",
             asset: { address: this.usdcAddress, decimals: 6, eip712: { name: "USD Coin", version: "2" } }
           }
         },
@@ -74,7 +74,7 @@ class TipRouter {
           price: "$10.00",
           network: this.network,
           config: {
-            description: "Tip $10.00 USDC for level 1000 super chat",
+            description: "Tip $10.00 USDC for level 1000 supporter chat",
             asset: { address: this.usdcAddress, decimals: 6, eip712: { name: "USD Coin", version: "2" } }
           }
         },
@@ -82,7 +82,7 @@ class TipRouter {
           price: "$25.00",
           network: this.network,
           config: {
-            description: "Tip $25.00 USDC for level 2500 super chat",
+            description: "Tip $25.00 USDC for level 2500 supporter chat",
             asset: { address: this.usdcAddress, decimals: 6, eip712: { name: "USD Coin", version: "2" } }
           }
         }
@@ -105,7 +105,7 @@ class TipRouter {
         const tipRequest = new TipRequest(req.body);
         this.tipMsgs.push({ msg: tipRequest.msg, level: 1, ts: Date.now() / 1000 });
         if (tipRequest.userAddress) {
-          this.chatRouter.addSupporterUser(tipRequest.userAddress, tipRequest.userSignature, 0.01);
+          this.chatRouter.addSupporterUser(tipRequest.userAddress, );
         }
         res.json({ tip: { amount_usd: 0.01, status: 'success' } });
       } catch (error) {
@@ -119,7 +119,7 @@ class TipRouter {
         const tipRequest = new TipRequest(req.body);
         this.tipMsgs.push({ msg: tipRequest.msg, level: 5, ts: Date.now() / 1000 });
         if (req.body.userAddress) {
-          this.chatRouter.addSupporterUser(req.body.userAddress, 0.05);
+          this.chatRouter.addSupporterUser(req.body.userAddress, 5);
         }
         res.json({ tip: { amount_usd: 0.05, status: 'success' } });
       } catch (error) {
@@ -133,7 +133,7 @@ class TipRouter {
         const tipRequest = new TipRequest(req.body);
         this.tipMsgs.push({ msg: tipRequest.msg, level: 10, ts: Date.now() / 1000 });
         if (req.body.userAddress) {
-          this.chatRouter.addSupporterUser(req.body.userAddress, 0.1);
+          this.chatRouter.addSupporterUser(req.body.userAddress, 10);
         }
         res.json({ tip: { amount_usd: 0.1, status: 'success' } });
       } catch (error) {
@@ -147,7 +147,7 @@ class TipRouter {
         const tipRequest = new TipRequest(req.body);
         this.tipMsgs.push({ msg: tipRequest.msg, level: 25, ts: Date.now() / 1000 });
         if (req.body.userAddress) {
-          this.chatRouter.addSupporterUser(req.body.userAddress, 0.25);
+          this.chatRouter.addSupporterUser(req.body.userAddress, 25);
         }
         res.json({ tip: { amount_usd: 0.25, status: 'success' } });
       } catch (error) {
@@ -161,7 +161,7 @@ class TipRouter {
         const tipRequest = new TipRequest(req.body);
         this.tipMsgs.push({ msg: tipRequest.msg, level: 100, ts: Date.now() / 1000 });
         if (tipRequest.userAddress) {
-          this.chatRouter.addSupporterUser(tipRequest.userAddress, tipRequest.userSignature, 1.00);
+          this.chatRouter.addSupporterUser(tipRequest.userAddress, 100);
         }
         res.json({ tip: { amount_usd: 1.00, status: 'success' } });
       } catch (error) {
@@ -175,7 +175,7 @@ class TipRouter {
         const tipRequest = new TipRequest(req.body);
         this.tipMsgs.push({ msg: tipRequest.msg, level: 500, ts: Date.now() / 1000 });
         if (tipRequest.userAddress) {
-          this.chatRouter.addSupporterUser(tipRequest.userAddress, tipRequest.userSignature, 5.00);
+          this.chatRouter.addSupporterUser(tipRequest.userAddress, 500);
         }
         res.json({ tip: { amount_usd: 5.00, status: 'success' } });
       } catch (error) {
@@ -189,7 +189,7 @@ class TipRouter {
         const tipRequest = new TipRequest(req.body);
         this.tipMsgs.push({ msg: tipRequest.msg, level: 1000, ts: Date.now() / 1000 });
         if (tipRequest.userAddress) {
-          this.chatRouter.addSupporterUser(tipRequest.userAddress, tipRequest.userSignature, 10.00);
+          this.chatRouter.addSupporterUser(tipRequest.userAddress, 1000);
         }
         res.json({ tip: { amount_usd: 10.00, status: 'success' } });
       } catch (error) {
@@ -203,7 +203,7 @@ class TipRouter {
         const tipRequest = new TipRequest(req.body);
         this.tipMsgs.push({ msg: tipRequest.msg, level: 2500, ts: Date.now() / 1000 });
         if (tipRequest.userAddress) {
-          this.chatRouter.addSupporterUser(tipRequest.userAddress, tipRequest.userSignature, 25.00);
+          this.chatRouter.addSupporterUser(tipRequest.userAddress, 2500);
         }
         res.json({ tip: { amount_usd: 25.00, status: 'success' } });
       } catch (error) {

@@ -64,19 +64,30 @@ if (!depositAddress || !FACILITATOR_URL || !SWEEP_ADDRESS) {
 
 const { StreamRouter } = require('./src/routes/streamRoutes');
 const { ChatRouter } = require('./src/routes/chatRoutes');
-const { AuthRouter } = require('./src/routes/authRoutes');
+const { EnhancedAuthRoutes } = require('./src/routes/enhancedAuthRoutes');
 const { TipRouter } = require('./src/routes/tipRoutes');
 
-const authRouter = new AuthRouter({
+// Import new enhanced authentication system
+const { sessionMiddleware } = require('./src/auth/ironSessionConfig');
+const ChatMessageValidator = require('./src/auth/chatMessageValidator');
+
+// Create enhanced auth router
+const authRouter = new EnhancedAuthRoutes({
   logger,
 });
 
-const SessionCache = require('./src/auth/sessionCache');
-const sessionCache = new SessionCache();
+// Create chat message validator with siweHandler reference
+const messageValidator = new ChatMessageValidator({
+  logger,
+  sessionCache: authRouter.getSessionCache(),
+  siweHandler: authRouter.siweHandler,
+});
 
+// Create chat router with enhanced validation and siweHandler
 const chatRouter = new ChatRouter({
   logger,
-  sessionCache,
+  messageValidator,
+  siweHandler: authRouter.siweHandler,
 });
 
 // Create route instances
@@ -119,11 +130,14 @@ app.use(helmet({
 }));
 app.use(cors({
   origin: ["*"],
-  credentials: false,
+  credentials: true, // Enable credentials for iron-session
   methods: ["*"],
   allowedHeaders: ["*"]
 }));
 app.use(express.json());
+
+// Apply iron-session middleware for all routes
+app.use(sessionMiddleware);
 
 
 // Mount tip router (contains payment middleware and tip endpoints)
@@ -137,10 +151,12 @@ const tipRouter = new TipRouter({
   chatRouter
 });
 app.use('/', tipRouter.getRouter());
+
 // Mount routes to the app
 app.use('/api/auth', authRouter.getRouter());
 app.use('/api/chat', chatRouter.getRouter());
 app.use('/api/stream', streamRouter.getRouter());
+
 logger.info('Routes mounted: /api/auth, /api/chat, /api/messages, /api/stream, /api/tip');
 
 // Rate limiting
@@ -165,18 +181,6 @@ if (fs.existsSync(frontendDist)) {
 }
 
 // Tip endpoints (payment middleware moved to `./src/routes/tipRoutes.js`)
-
-// Models (equivalent to Pydantic models)
-class PromptRequest {
-  constructor(data) {
-    this.prompt = data.prompt;
-    this.seed = data.seed || 42;
-    this.steps = data.steps || 28;
-    this.guidanceScale = data.guidance_scale || 4.0;
-    this.referenceImages = data.reference_images || null;
-    this.controlId = data.control_id || null;
-  }
-}
 
 // Health check endpoint
 app.get('/health', (req, res) => {
