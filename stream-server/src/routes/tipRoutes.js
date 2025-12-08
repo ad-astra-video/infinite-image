@@ -105,8 +105,23 @@ class TipRouter {
         const tipRequest = new TipRequest(req.body);
         this.tipMsgs.push({ msg: tipRequest.msg, level: 1, ts: Date.now() / 1000 });
         if (tipRequest.userAddress) {
-          this.chatRouter.addSupporterUser(tipRequest.userAddress, );
+          this.chatRouter.addSupporterUser(tipRequest.userAddress, 1);
         }
+        
+        // Broadcast tip message to public chat
+        const tipMessage = {
+          type: 'chat_message',
+          messageType: 'tip',
+          room: 'public',
+          message: tipRequest.msg || `Thank you for the $0.01 tip!`,
+          userAddress: tipRequest.userAddress || 'anonymous',
+          sender: tipRequest.userAddress || 'anonymous',
+          senderType: 'supporter',
+          timestamp: new Date().toISOString(),
+          id: `tip-${Date.now()}-1`
+        };
+        this.chatRouter.broadcastToRoom('public', 'chat_message', tipMessage);
+        
         res.json({ tip: { amount_usd: 0.01, status: 'success' } });
       } catch (error) {
         this.logger.error(`Tip 1 failed: ${error.message}`);
@@ -121,6 +136,21 @@ class TipRouter {
         if (req.body.userAddress) {
           this.chatRouter.addSupporterUser(req.body.userAddress, 5);
         }
+        
+        // Broadcast tip message to public chat
+        const tipMessage = {
+          type: 'chat_message',
+          messageType: 'tip',
+          room: 'public',
+          message: tipRequest.msg || `Thank you for the $0.05 tip!`,
+          userAddress: tipRequest.userAddress || 'anonymous',
+          sender: tipRequest.userAddress || 'anonymous',
+          senderType: 'supporter',
+          timestamp: new Date().toISOString(),
+          id: `tip-${Date.now()}-5`
+        };
+        this.chatRouter.broadcastToRoom('public', 'chat_message', tipMessage);
+        
         res.json({ tip: { amount_usd: 0.05, status: 'success' } });
       } catch (error) {
         this.logger.error(`Tip 5 failed: ${error.message}`);
@@ -135,6 +165,21 @@ class TipRouter {
         if (req.body.userAddress) {
           this.chatRouter.addSupporterUser(req.body.userAddress, 10);
         }
+        
+        // Broadcast tip message to public chat
+        const tipMessage = {
+          type: 'chat_message',
+          messageType: 'tip',
+          room: 'public',
+          message: tipRequest.msg || `Thank you for the $0.10 tip!`,
+          userAddress: tipRequest.userAddress || 'anonymous',
+          sender: tipRequest.userAddress || 'anonymous',
+          senderType: 'supporter',
+          timestamp: new Date().toISOString(),
+          id: `tip-${Date.now()}-10`
+        };
+        this.chatRouter.broadcastToRoom('public', 'chat_message', tipMessage);
+        
         res.json({ tip: { amount_usd: 0.1, status: 'success' } });
       } catch (error) {
         this.logger.error(`Tip 10 failed: ${error.message}`);
@@ -149,6 +194,21 @@ class TipRouter {
         if (req.body.userAddress) {
           this.chatRouter.addSupporterUser(req.body.userAddress, 25);
         }
+        
+        // Broadcast tip message to public chat
+        const tipMessage = {
+          type: 'chat_message',
+          messageType: 'tip',
+          room: 'public',
+          message: tipRequest.msg || `Thank you for the $0.25 tip!`,
+          userAddress: tipRequest.userAddress || 'anonymous',
+          sender: tipRequest.userAddress || 'anonymous',
+          senderType: 'supporter',
+          timestamp: new Date().toISOString(),
+          id: `tip-${Date.now()}-25`
+        };
+        this.chatRouter.broadcastToRoom('public', 'chat_message', tipMessage);
+        
         res.json({ tip: { amount_usd: 0.25, status: 'success' } });
       } catch (error) {
         this.logger.error(`Tip 25 failed: ${error.message}`);
@@ -163,6 +223,21 @@ class TipRouter {
         if (tipRequest.userAddress) {
           this.chatRouter.addSupporterUser(tipRequest.userAddress, 100);
         }
+        
+        // Broadcast tip message to public chat
+        const tipMessage = {
+          type: 'chat_message',
+          messageType: 'tip',
+          room: 'public',
+          message: tipRequest.msg || `Thank you for the $1.00 tip!`,
+          userAddress: tipRequest.userAddress || 'anonymous',
+          sender: tipRequest.userAddress || 'anonymous',
+          senderType: 'supporter',
+          timestamp: new Date().toISOString(),
+          id: `tip-${Date.now()}-100`
+        };
+        this.chatRouter.broadcastToRoom('public', 'chat_message', tipMessage);
+        
         res.json({ tip: { amount_usd: 1.00, status: 'success' } });
       } catch (error) {
         this.logger.error(`Tip 100 failed: ${error.message}`);
@@ -177,6 +252,21 @@ class TipRouter {
         if (tipRequest.userAddress) {
           this.chatRouter.addSupporterUser(tipRequest.userAddress, 500);
         }
+        
+        // Broadcast tip message to public chat
+        const tipMessage = {
+          type: 'chat_message',
+          messageType: 'tip',
+          room: 'public',
+          message: tipRequest.msg || `Thank you for the $5.00 tip!`,
+          userAddress: tipRequest.userAddress || 'anonymous',
+          sender: tipRequest.userAddress || 'anonymous',
+          senderType: 'supporter',
+          timestamp: new Date().toISOString(),
+          id: `tip-${Date.now()}-500`
+        };
+        this.chatRouter.broadcastToRoom('public', 'chat_message', tipMessage);
+        
         res.json({ tip: { amount_usd: 5.00, status: 'success' } });
       } catch (error) {
         this.logger.error(`Tip 500 failed: ${error.message}`);
@@ -191,6 +281,21 @@ class TipRouter {
         if (tipRequest.userAddress) {
           this.chatRouter.addSupporterUser(tipRequest.userAddress, 1000);
         }
+        
+        // Broadcast tip message to public chat
+        const tipMessage = {
+          type: 'chat_message',
+          messageType: 'tip',
+          room: 'public',
+          message: tipRequest.msg || `Thank you for the $10.00 tip!`,
+          userAddress: tipRequest.userAddress || 'anonymous',
+          sender: tipRequest.userAddress || 'anonymous',
+          senderType: 'supporter',
+          timestamp: new Date().toISOString(),
+          id: `tip-${Date.now()}-1000`
+        };
+        this.chatRouter.broadcastToRoom('public', 'chat_message', tipMessage);
+        
         res.json({ tip: { amount_usd: 10.00, status: 'success' } });
       } catch (error) {
         this.logger.error(`Tip 1000 failed: ${error.message}`);
@@ -205,6 +310,21 @@ class TipRouter {
         if (tipRequest.userAddress) {
           this.chatRouter.addSupporterUser(tipRequest.userAddress, 2500);
         }
+        
+        // Broadcast tip message to public chat
+        const tipMessage = {
+          type: 'chat_message',
+          messageType: 'tip',
+          room: 'public',
+          message: tipRequest.msg || `Thank you for the $25.00 tip!`,
+          userAddress: tipRequest.userAddress || 'anonymous',
+          sender: tipRequest.userAddress || 'anonymous',
+          senderType: 'supporter',
+          timestamp: new Date().toISOString(),
+          id: `tip-${Date.now()}-2500`
+        };
+        this.chatRouter.broadcastToRoom('public', 'chat_message', tipMessage);
+        
         res.json({ tip: { amount_usd: 25.00, status: 'success' } });
       } catch (error) {
         this.logger.error(`Tip 2500 failed: ${error.message}`);

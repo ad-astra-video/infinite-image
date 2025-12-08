@@ -61,11 +61,6 @@ class EnhancedAuthRoutes {
       // Generate secure nonce bound to ephemeral key
       const nonceData = await this.siweHandler.generateSecureNonce(ephemeralPublicKey, req);
 
-      this.logger.info('SIWE nonce generated:', {
-        ephemeralKey: ephemeralPublicKey.substring(0, 8) + '...',
-        ip: req.ip
-      });
-
       res.json({
         success: true,
         data: nonceData
@@ -130,7 +125,6 @@ class EnhancedAuthRoutes {
       };
       req.session.ephemeral = {
         publicKey: verification.delegation.ephemeralPublicKey,
-        expiresAt: verification.delegation.expiresAt
       };
       req.session.fingerprint = {
         ipHash: this.siweHandler.hashIP(req.ip),
@@ -140,11 +134,6 @@ class EnhancedAuthRoutes {
       };
 
       await req.session.save();
-
-      this.logger.info('Enhanced SIWE verification successful:', {
-        address: verification.address,
-        ephemeralKey: verification.delegation.ephemeralPublicKey.substring(0, 8) + '...'
-      });
       
       res.json({
         success: true,
@@ -188,14 +177,14 @@ class EnhancedAuthRoutes {
       // Check expiration
       const now = Date.now();
       const siweExpired = session.siwe.expiresAt && now > session.siwe.expiresAt;
-      const ephemeralExpired = session.ephemeral.expiresAt && now > session.ephemeral.expiresAt;
 
-      if (siweExpired || ephemeralExpired) {
+      if (siweExpired) {
         await req.session.destroy();
         return res.json({
           success: true,
           data: {
             authenticated: false,
+            expired: true,
             reason: 'session_expired'
           }
         });
@@ -203,10 +192,11 @@ class EnhancedAuthRoutes {
 
       // Check if session expires within 5 minutes (300,000 ms)
       const fiveMinutes = 5 * 60 * 1000;
-      const minExpiry = Math.min(session.siwe.expiresAt, session.ephemeral.expiresAt);
-      const timeUntilExpiry = minExpiry - now;
+      const expiresAtTime = new Date(session.siwe.expiresAt).getTime();
+      const timeUntilExpiry = expiresAtTime - now;
       const expiresSoon = timeUntilExpiry <= fiveMinutes;
       const expired = timeUntilExpiry <= 0;
+      
       // Session is valid
       res.json({
         success: true,

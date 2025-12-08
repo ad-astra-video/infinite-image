@@ -506,16 +506,12 @@ class ChatRouter {
    */
   async validateSupporterSignature(userAddress, userSignature) {
     try {
-      this.logger.info('Validating supporter signature for address:', userAddress);
-      
       // Get delegation data for the user
       if (!this.messageValidator.siweHandler) {
         throw new Error('SIWE handler not configured');
       }
       const delegation = this.messageValidator.siweHandler?.getDelegationDataByAddress(userAddress);
-      
-      this.logger.info('Delegation lookup result:', delegation);
-      
+            
       if (!delegation || !delegation.ephemeralPublicKey) {
         this.logger.error('No valid delegation found for user address:', userAddress);
         throw new Error('No valid delegation found for user address');
@@ -530,8 +526,6 @@ class ChatRouter {
 
       // Verify the signature using the ephemeral public key
       const message = `supporter_check_${userAddress}`;
-      this.logger.info('Message to verify:', message);
-      this.logger.info('Signature to verify:', userSignature);
       const isValid = this.messageValidator.verifyEphemeralSignature(message, userSignature, delegation.ephemeralPublicKey);
       if (!isValid) {
         this.logger.error('Ephemeral signature verification failed for address:', userAddress);
@@ -541,7 +535,6 @@ class ChatRouter {
       //confirmed signature, update counter tracking ephemeral key usage
       this.messageValidator.siweHandler.updateDelegationCounter(userAddress, delegation.counter+1);
 
-      this.logger.info('Supporter signature validation successful');
       return {
         isValid: true,
         address: userAddress,
@@ -564,12 +557,6 @@ class ChatRouter {
    */
   async validateChatMessage(ws, { message, signature, counter, userAddress }) {
     try {
-      this.logger.info('🔍 ChatRoutes validating message:', {
-        counter: counter,
-        hasSignature: !!signature,
-        userAddress: userAddress?.substring(0, 8) + '...'
-      })
-      
       return await this.messageValidator.validateChatMessage({
         message,
         signature,

@@ -46,7 +46,7 @@ class ChatMessageValidator {
         // Check delegation expiration
         const now = Date.now();
         if (delegation.expiresAt && now > new Date(delegation.expiresAt).getTime()) {
-          this.logger.warn('⏰ Delegation expired:', {
+          this.logger.warn('Delegation expired:', {
             expiresAt: delegation.expiresAt,
             now: new Date(now).toISOString()
           })
@@ -54,15 +54,9 @@ class ChatMessageValidator {
         }
 
         // Validate monotonic counter
-        this.logger.info('🔢 Counter validation:', {
-          storedCounter: delegation.counter,
-          receivedCounter: counter,
-          expectedNext: delegation.counter !== undefined ? delegation.counter + 1 : undefined
-        })
-        
         if (delegation.counter !== undefined) {
           if (delegation.counter + 1 !== counter) {
-            this.logger.error('❌ Counter mismatch:', {
+            this.logger.error('Counter mismatch:', {
               stored: delegation.counter,
               expected: delegation.counter + 1,
               received: counter
@@ -70,7 +64,7 @@ class ChatMessageValidator {
             throw new Error(`Counter mismatch. Expected ${delegation.counter + 1}, received ${counter}`);
           }
         } else {
-          this.logger.warn('⚠️ No stored counter found - this may indicate first message or missing delegation update')
+          this.logger.warn('No stored counter found - this may indicate first message or missing delegation update')
         }
         
         // Verify signature with ephemeral public key
@@ -93,7 +87,7 @@ class ChatMessageValidator {
       // Anonymous users always have counter = 0, no counter validation needed
       if (userAddress !== 'anon' && delegation && delegation.counter !== undefined) {
         if (counter !== delegation.counter + 1) {
-          this.logger.error('❌ Counter mismatch on update:', {
+          this.logger.error('Counter mismatch on update:', {
             stored: delegation.counter,
             expected: delegation.counter + 1,
             received: counter
@@ -103,11 +97,6 @@ class ChatMessageValidator {
         
         // Update the delegation in the store
         if (this.siweHandler) {
-          this.logger.info('🔄 Updating delegation counter:', {
-            oldCounter: delegation.counter,
-            newCounter: counter,
-            userAddress: userAddress?.substring(0, 8) + '...'
-          })
           this.siweHandler.updateDelegationCounter(userAddress, counter);
         }
       } else if (userAddress !== 'anon' && delegation) {
@@ -170,7 +159,7 @@ class ChatMessageValidator {
       // Skip signature verification for anonymous users with blank signatures
       if (!publicKey || !signature || signature === '') {
         if (signature === '') {
-          this.logger.info('🔍 Skipping signature verification for anonymous user with blank signature');
+          this.logger.info('Skipping signature verification for anonymous user with blank signature');
           return true;
         }
         return false;

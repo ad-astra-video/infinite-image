@@ -46,12 +46,6 @@ class SIWEWithEphemeralHandler {
       // Store nonce with metadata
       this.nonceStore.set(nonce, nonceData);
       
-      this.logger.info('Generated secure SIWE nonce:', {
-        ephemeralPublicKey: ephemeralPublicKey.substring(0, 8) + '...',
-        ipHash: nonceData.ipHash.substring(0, 8) + '...',
-        issuedAt: new Date(nonceData.issuedAt).toISOString()
-      });
-
       return { nonce, ephemeralPublicKey };
     } catch (error) {
       this.logger.error('Error generating secure nonce:', error);
@@ -138,12 +132,6 @@ class SIWEWithEphemeralHandler {
       // Clean up used nonce
       this.nonceStore.delete(siweMessageObj.nonce);
 
-      this.logger.info('Enhanced SIWE verification successful:', {
-        address: fields.data.address.toLowerCase(),
-        ephemeralKey: delegation.ephemeralPublicKey.substring(0, 8) + '...',
-        delegationExpires: new Date(delegationExpiration).toISOString()
-      });
-
       return {
         success: true,
         address: fields.data.address.toLowerCase(),
@@ -215,14 +203,6 @@ class SIWEWithEphemeralHandler {
     };
 
     this.delegationStore.set(normalizedAddress, delegationData);
-    
-    this.logger.info('Delegation stored:', {
-      originalAddress: address,
-      normalizedAddress: normalizedAddress,
-      ephemeralPublicKey: delegation.ephemeralPublicKey,
-      normalizedEphemeralKey: delegation.ephemeralPublicKey?.toLowerCase(),
-      storeSize: this.delegationStore.size
-    });
   }
 
   /**
@@ -327,11 +307,6 @@ class SIWEWithEphemeralHandler {
       const address = userAddress.toLowerCase();
       const delegation = this.delegationStore.get(address);
       if (delegation) {
-        this.logger.info('Updating delegation counter:', {
-          address: address.substring(0, 8) + '...',
-          oldCounter: delegation.counter,
-          newCounter: newCounter
-        })
         delegation.counter = newCounter;
         delegation.lastUsed = Date.now();
         this.delegationStore.set(address, delegation);
