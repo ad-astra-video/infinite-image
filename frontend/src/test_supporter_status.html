@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Supporter Status Update</title>
+    <style>
+        .chat-tab {
+            padding: 10px;
+            margin: 5px;
+            border: 1px solid #ccc;
+            cursor: pointer;
+            background: #f0f0f0;
+        }
+        .gold-shine {
+            background: linear-gradient(135deg, #DAA520 0%, #B8860B 25%, #DAA520 50%, #B8860B 75%, #DAA520 100%);
+            background-size: 200% 200%;
+            color: #000;
+            border-color: #DAA520;
+            font-weight: 600;
+            animation: goldShine 2s ease-in-out infinite, pulse 1s ease-in-out infinite;
+            box-shadow: 0 0 20px rgba(218, 165, 32, 0.6), 0 0 40px rgba(218, 165, 32, 0.4);
+        }
+        .gold-permanent {
+            background: #DAA520;
+            color: #000;
+            border-color: #DAA520;
+            font-weight: 600;
+            box-shadow: 0 0 10px rgba(218, 165, 32, 0.4);
+        }
+        @keyframes goldShine {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+        .message-input {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+        }
+        .send-button {
+            padding: 10px 20px;
+            background: #007bff;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+        .send-button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+    <h2>Test Supporter Status Update</h2>
+    
+    <div>
+        <button class="chat-tab" id="publicTab">Public</button>
+        <button class="chat-tab" id="supporterTab">Supporter</button>
+    </div>
+    
+    <div style="margin-top: 20px;">
+        <input type="text" id="messageInput" class="message-input" placeholder="Enter message..." disabled>
+        <button id="sendButton" class="send-button" disabled>Send</button>
+    </div>
+    
+    <div style="margin-top: 20px;">
+        <button onclick="simulateSupporterStatus()">Simulate Supporter Status (isSupporter: true)</button>
+        <button onclick="resetStatus()">Reset Status</button>
+    </div>
+    
+    <div id="status" style="margin-top: 20px; padding: 10px; background: #f9f9f9;">
+        Current Status: <span id="statusText">Not Supporter</span>
+    </div>
+
+    <script>
+        let isSupporter = false;
+        let tipSuccessAnimation = false;
+        let activeTab = 'public';
+        
+        const publicTab = document.getElementById('publicTab');
+        const supporterTab = document.getElementById('supporterTab');
+        const messageInput = document.getElementById('messageInput');
+        const sendButton = document.getElementById('sendButton');
+        const statusText = document.getElementById('statusText');
+        
+        function updateUI() {
+            const showGoldAnimation = activeTab === 'supporter' && tipSuccessAnimation;
+            const showGoldPermanent = activeTab === 'supporter' && isSupporter && !tipSuccessAnimation;
+            
+            // Update tab styling
+            if (showGoldAnimation) {
+                supporterTab.className = 'chat-tab gold-shine';
+            } else if (showGoldPermanent) {
+                supporterTab.className = 'chat-tab gold-permanent';
+            } else {
+                supporterTab.className = 'chat-tab';
+            }
+            
+            // Update input and button states
+            if (activeTab === 'supporter') {
+                messageInput.disabled = !isSupporter;
+                sendButton.disabled = !isSupporter || !messageInput.value.trim();
+            } else {
+                messageInput.disabled = false;
+                sendButton.disabled = !messageInput.value.trim();
+            }
+            
+            // Update status display
+            statusText.textContent = isSupporter ? 'Supporter' : 'Not Supporter';
+        }
+        
+        function simulateSupporterStatus() {
+            console.log('Simulating supporter_status websocket message with isSupporter: true');
+            isSupporter = true;
+            tipSuccessAnimation = true;
+            
+            // Remove animation after 3 seconds
+            setTimeout(() => {
+                tipSuccessAnimation = false;
+                updateUI();
+            }, 3000);
+            
+            updateUI();
+        }
+        
+        function resetStatus() {
+            isSupporter = false;
+            tipSuccessAnimation = false;
+            updateUI();
+        }
+        
+        // Tab switching
+        publicTab.onclick = () => {
+            activeTab = 'public';
+            updateUI();
+        };
+        
+        supporterTab.onclick = () => {
+            activeTab = 'supporter';
+            updateUI();
+        };
+        
+        // Message input handling
+        messageInput.oninput = () => {
+            updateUI();
+        };
+        
+        sendButton.onclick = () => {
+            if (activeTab === 'supporter' && isSupporter) {
+                alert('Supporter message sent!');
+            } else {
+                alert('Public message sent!');
+            }
+        };
+        
+        // Initial UI update
+        updateUI();
+    </script>
+</body>
+</html>

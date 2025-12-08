@@ -6,6 +6,7 @@ import { buildX402TypedData } from '../utils/x402'
 import { API_BASE } from '../utils/apiConfig'
 import { SiweMessage } from 'siwe'
 import EphemeralKeyManager from '../utils/EphemeralKeyManager'
+import { Toast, ToastContainer } from './Toast'
 
 // Comprehensive Wallet Context - single source of truth for all wallet data
 // Default to `null` so using the hook outside a provider throws early and
@@ -28,6 +29,9 @@ export function WalletProvider({ children }) {
   const [ephemeralManager, setEphemeralManager] = useState(null)
   const [enhancedAuth, setEnhancedAuth] = useState({ authenticated: false, session: null })
   
+  // Toast notification state for session warnings
+  const [sessionWarning, setSessionWarning] = useState({ show: false, message: '', action: null })
+  
   // App name state from backend
   const [appName, setAppName] = useState('X402-Stream')
 
@@ -47,7 +51,7 @@ export function WalletProvider({ children }) {
     fetchAppName()
   }, [])
 
-    // USDC contract configuration
+  // USDC contract configuration
   const USDC_CONTRACT_ADDRESS = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
   const USDC_ABI = [
     {
@@ -200,18 +204,12 @@ export function WalletProvider({ children }) {
   }, [isConnected, signTypedDataAsync])
 
   // Enhanced SIWE + Ephemeral Delegation Authentication
-  const performEnhancedSIWE = useCallback(async () => {
-    console.log('🔍 DEBUG: performEnhancedSIWE called')
-    console.log('🔍 DEBUG: isConnected:', isConnected, 'address:', address)
-    
+  const performEnhancedSIWE = useCallback(async () => {    
     if (!isConnected || !address) {
       throw new Error('Wallet not connected')
     }
 
-    try {
-      console.log('=== Enhanced SIWE + Ephemeral Delegation Start ===')
-      console.log('🔍 DEBUG: Starting SIWE process for address:', address)
-      
+    try {      
       // Check Web Crypto availability
       if (!EphemeralKeyManager.isWebCryptoAvailable()) {
         throw new Error('Web Crypto API not available')
@@ -237,7 +235,7 @@ export function WalletProvider({ children }) {
       }
 
       const { nonce } = nonceData.data
-      console.log('3. SIWE nonce received:', nonce)
+      console.log('3. SIWE nonce received...')
 
       // Create SIWE message with delegation
       console.log('4. Creating SIWE message with ephemeral delegation...')
@@ -252,14 +250,14 @@ export function WalletProvider({ children }) {
         chainId: networkChain?.id || chain?.id || 84532,
         nonce: nonce,
         issuedAt: new Date().toISOString(),
-        expirationTime: new Date(Date.now() + 30 * 60 * 1000).toISOString()
+        expirationTime: new Date(Date.now() + 1 * 60 * 1000).toISOString()
       })
 
       // Sign SIWE message
       console.log('5. Signing SIWE message with main wallet...')
       const preparedMessage = siweMessage.prepareMessage()
       const signature = await signMessageAsync({ message: preparedMessage })
-      console.log('6. SIWE signature received:', signature)
+      console.log('6. SIWE signed...')
 
       // Verify with backend
       console.log('7. Verifying SIWE + delegation with backend...')
@@ -270,17 +268,12 @@ export function WalletProvider({ children }) {
       })
 
       const verificationData = await verifyResponse.json()
-      console.log('🔍 DEBUG: Backend verification response:', verificationData)
       if (!verificationData.success) {
-        console.error('🔍 DEBUG: SIWE verification failed:', verificationData.error)
         throw new Error(verificationData.error || 'SIWE verification failed')
       }
 
       console.log('8. Enhanced SIWE authentication successful!')
-      console.log('🔍 DEBUG: Setting loginAddress to:', address)
-      console.log('🔍 DEBUG: Current loginAddress state before set:', loginAddress)
       setLoginAddress(address)
-      console.log('🔍 DEBUG: loginAddress set, current state:', address)
       setLoginPrompted(true)
       setSiweValidated(true)
 
@@ -332,6 +325,28 @@ export function WalletProvider({ children }) {
           session: data.data,
           address: data.data.address
         })
+
+        // Check if session expires soon and show warning toast
+        if ((data.data.expired || data.data.expiresSoon) && data.data.authenticated) {
+          const minutesLeft = Math.ceil(data.data.timeUntilExpiry / (60 * 1000))
+          const message = `Your session will expire in ${minutesLeft} minute${minutesLeft !== 1 ? 's' : ''}. Click to extend your login.`
+          const action = (
+            <button
+              onClick={() => {
+                setSessionWarning({ show: false, message: '', action: null })
+                performEnhancedSIWE().catch(console.error)
+              }}
+              className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+            >
+              Extend Login
+            </button>
+          )
+          setSessionWarning({ show: true, message, action })
+        } else {
+          // Hide warning if session is no longer expiring soon
+          setSessionWarning({ show: false, message: '', action: null })
+        }
+
         return data.data
       }
       return null
@@ -339,7 +354,7 @@ export function WalletProvider({ children }) {
       console.error('Session status check failed:', error)
       return null
     }
-  }, [])
+  }, [performEnhancedSIWE])
 
   // Secure logout
   const performSecureLogout = useCallback(async () => {
@@ -365,13 +380,23 @@ export function WalletProvider({ children }) {
     }
   }, [ephemeralManager])
 
+  // Periodic session status polling (every minute when authenticated)
+  useEffect(() => {
+    if (enhancedAuth.authenticated) {
+      // Check immediately
+      checkSessionStatus()
+      
+      // Set up interval to check every minute
+      const interval = setInterval(() => {
+        checkSessionStatus()
+      }, 60 * 1000) // 60 seconds = 1 minute
+      
+      return () => clearInterval(interval)
+    }
+  }, [enhancedAuth.authenticated, checkSessionStatus])
+
   // Context value - comprehensive wallet state
-  const contextValue = useMemo(() => {
-    console.log('🔍 DEBUG: Computing context value')
-    console.log('🔍 DEBUG: loginAddress state:', loginAddress)
-    console.log('🔍 DEBUG: siweValidated state:', siweValidated)
-    console.log('🔍 DEBUG: enhancedAuth state:', enhancedAuth)
-    
+  const contextValue = useMemo(() => {    
     const value = {
       // Account data
       address,
@@ -410,13 +435,11 @@ export function WalletProvider({ children }) {
       loginAddress,
       createLoginSignature,
       siweValidated,
+
+      // Session warning state
+      sessionWarning,
+      setSessionWarning,
     }
-    
-    console.log('🔍 DEBUG: Context value computed:', {
-      loginAddress: value.loginAddress,
-      siweValidated: value.siweValidated,
-      enhancedAuth: value.enhancedAuth
-    })
     
     return value
   }, [
@@ -438,13 +461,31 @@ export function WalletProvider({ children }) {
     siweValidated,
     connected,
     appName,
-    refetchUsdc
+    refetchUsdc,
+    sessionWarning,
+    setSessionWarning
   ])
 
   return (
-    <WalletContext.Provider value={contextValue}>
-      {children}
-    </WalletContext.Provider>
+    <>
+      <WalletContext.Provider value={contextValue}>
+        {children}
+      </WalletContext.Provider>
+      
+      {/* Toast notification for session warnings */}
+      <ToastContainer>
+        {sessionWarning.show && (
+          <Toast
+            message={sessionWarning.message}
+            type="warning"
+            show={sessionWarning.show}
+            action={sessionWarning.action}
+            onClose={() => setSessionWarning({ show: false, message: '', action: null })}
+            duration={0} // Don't auto-dismiss session warnings
+          />
+        )}
+      </ToastContainer>
+    </>
   )
 }
 

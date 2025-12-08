@@ -52,10 +52,6 @@ class EphemeralKeyManager {
       this.isInitialized = true;
       this.counter = 0;
 
-      console.log('Ephemeral wallet generated:', {
-        publicKey: this.ephemeralWallet.publicKey
-      });
-
       return this.ephemeralWallet.publicKey;
     } catch (error) {
       console.error('Error generating ephemeral wallet:', error);
@@ -93,10 +89,6 @@ class EphemeralKeyManager {
       
       // Increment counter
       this.counter += 1;
-
-      console.log('Message signed with ephemeral key:', {
-        counter: this.counter
-      });
 
       return { signature, counter: this.counter };
     } catch (error) {

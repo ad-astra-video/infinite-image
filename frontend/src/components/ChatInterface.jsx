@@ -15,7 +15,6 @@ function ChatInterface() {
   const [ws, setWs] = useState(null)
   const [userJoined, setUserJoined] = useState(false)
   const [lastMessageTime, setLastMessageTime] = useState(0)
-  const [anonymousMessageCounter, setAnonymousMessageCounter] = useState(0)
   const [isSupporter, setIsSupporter] = useState(false)
   const [tipSuccessAnimation, setTipSuccessAnimation] = useState(false)
   const [roomCounts, setRoomCounts] = useState({})
@@ -119,7 +118,6 @@ function ChatInterface() {
         const { signature } = await wallet.signWithEphemeralKey(signatureData)
         userSignature = signature
         signingSuccess = true
-        console.log('Ephemeral signing successful for supporter check')
       } catch (error) {
         console.warn('Ephemeral signing failed:', error)
         signingSuccess = false
@@ -137,7 +135,6 @@ function ChatInterface() {
         userAddress,
         userSignature
       }))
-      console.log('Sent supporter check with signature')
       return true
     } else {
       console.log('Skipping supporter check due to signing failure or missing signature')
@@ -170,14 +167,14 @@ function ChatInterface() {
       newWs.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data)
-          console.log('Received message:', data)
+          //console.log('Received message:', data)
           
           switch (data.type) {
             case 'connection':
-              console.log('Connection established:', data.message)
+              console.log('Connection established:', data.message)``
               break
             case 'chat_history':
-              console.log('Received historical messages:', data.messages.length)
+              //console.log('Received historical messages:', data.messages.length)
               
               // Add historical messages to the appropriate message state based on room
               if (data.room === 'public') {
@@ -221,7 +218,7 @@ function ChatInterface() {
               // Update lastMessageTime if we received historical messages
               if (data.messages && data.messages.length > 0) {
                 const lastMessage = data.messages[data.messages.length - 1]
-                setLastMessageTime(lastMessage.timestamp)
+                setLastMessageTime(new Date(lastMessage.timestamp).getTime())
               }
               break
             case 'chat_message':
@@ -294,12 +291,23 @@ function ChatInterface() {
               }
               
               // Update lastMessageTime for new chat messages
-              setLastMessageTime(data.timestamp)
+              setLastMessageTime(new Date(data.timestamp).getTime())
               break
             case 'supporter_status':
-              console.log('Supporter status:', data)
-              if (data.userAddress === wallet.address || data.userAddress === wallet.loginAddress) {
-                setIsSupporter(data.isSupporter)
+              // Fix: Normalize addresses to lowercase for comparison
+              const normalizedWalletAddress = (wallet.address || '').toLowerCase()
+              const normalizedLoginAddress = (wallet.loginAddress || '').toLowerCase()
+              
+              if (data.userAddress === normalizedWalletAddress || data.userAddress === normalizedLoginAddress) {
+                // Trigger tip success animation when supporter status becomes true
+                if (data.isSupporter && !isSupporter) {
+                  setIsSupporter(data.isSupporter)
+                  setTipSuccessAnimation(true)
+                  // Remove animation after 3 seconds
+                  setTimeout(() => {
+                    setTipSuccessAnimation(false)
+                  }, 3000)
+                }
                 
                 // Only remove system messages if user is already a supporter
                 // This prevents race conditions during initial checks
@@ -314,7 +322,8 @@ function ChatInterface() {
               }
               break
             case 'user_joined':
-              console.log('User joined:', data)
+              //console.log('User joined:', data)
+
               // Store room count for display
               if (data.room && data.roomCount) {
                 setRoomCounts(prev => ({
@@ -324,7 +333,8 @@ function ChatInterface() {
               }
               break
             case 'user_left':
-              console.log('User left:', data)
+              //console.log('User left:', data)
+
               // Update room count for display
               if (data.room) {
                 setRoomCounts(prev => ({
@@ -334,24 +344,27 @@ function ChatInterface() {
               }
               break
             case 'user_address_updated':
-              console.log('User address updated:', data)
+              //console.log('User address updated:', data)
+
               // Update display name for the user who updated their address
               // This helps show the updated address in the UI
               break
             case 'rate_limit':
-              console.log('Rate limit response received:', data)
+              //console.log('Rate limit response received:', data)
+
               if (data.nextMessageTime) {
                 console.log('Starting cooldown timer for:', data.nextMessageTime, 'seconds')
                 startCooldownTimer(data.nextMessageTime)
               }
               break
+            case 'join_success':
+              //console.log('Join success:', data.message)
+              break
             case 'error':
               console.error('WebSocket error:', data.error)
               alert(data.error)
               break
-            case 'join_success':
-              console.log('Join success:', data.message)
-              break
+            
           }
         } catch (error) {
           console.error('Failed to parse WebSocket message:', error)
@@ -470,7 +483,7 @@ function ChatInterface() {
 
     // Check rate limiting for non-wallet users
     const now = Date.now()
-    const timeSinceLastMessage = now - lastMessageTime
+    const timeSinceLastMessage = now - (lastMessageTime || now)
 
     if (!wallet.isConnected && timeSinceLastMessage < 60000) { // 1 minute = 60000ms
       const remainingTime = Math.ceil((60000 - timeSinceLastMessage) / 1000)
@@ -494,20 +507,17 @@ function ChatInterface() {
 
         try {
           const { signature, counter } = await wallet.signWithEphemeralKey(newMessage)
-          console.log('✅ Public message ephemeral signing successful:', { signature: signature?.substring(0, 10) + '...', counter })
           messageData = {
             ...messageData,
             signature: signature,
             counter: counter
           }
         } catch (ephemeralError) {
-          console.error('❌ Public message ephemeral signing failed:', {
+          console.error('Public message ephemeral signing failed:', {
             error: ephemeralError.message,
             ephemeralManagerReady: wallet.ephemeralManager?.isReady(),
             hasSignMethod: !!wallet.signWithEphemeralKey
           })
-          // Don't add signature if ephemeral signing fails
-          console.log('📝 Sending public message without signature')
         }
       }
 
@@ -518,15 +528,7 @@ function ChatInterface() {
           counter: 0, // Always zero for anonymous users
           signature: 'none' // default signature value for anonymous users
         }
-        console.log('📊 Anonymous user counter always set to zero:', 0, 'Signature:', messageData.signature)
       }
-
-      console.log('📤 Sending message data:', {
-        type: messageData.type,
-        hasSignature: !!messageData.signature,
-        counter: messageData.counter,
-        messageLength: messageData.message?.length
-      })
 
       // public messages can be sent without wallet connected
       ws.send(JSON.stringify(messageData))
@@ -540,24 +542,12 @@ function ChatInterface() {
   }
 
   // Send supporter chat message with signature verification
-  const sendSupporterChat = async () => {
-    console.log('🔍 DEBUG: sendSupporterChat called')
-    console.log('🔍 DEBUG: wallet object:', {
-      isConnected: wallet.isConnected,
-      address: wallet.address,
-      loginAddress: wallet.loginAddress,
-      enhancedAuth: wallet.enhancedAuth,
-      siweValidated: wallet.siweValidated,
-      ephemeralManager: wallet.ephemeralManager
-    })
-    
+  const sendSupporterChat = async () => {    
     if (!supporterChatMessage.trim() || !wallet.isConnected || !ws) return
 
-    // Check if we have a login signature from wallet context
-    console.log('🔍 DEBUG: Checking wallet.loginAddress:', wallet.loginAddress)
+    // Check if we have a login signature from wallet contexts
     if (!wallet.loginAddress) {
-      console.log('🔍 DEBUG: wallet.loginAddress is null/undefined, alerting user')
-      alert('Please login with your wallet first to enable supporter chat functionality')
+      //alert('Please login with your wallet first to enable supporter chat functionality')
       return
     }
 
@@ -575,32 +565,24 @@ function ChatInterface() {
       if (wallet.signWithEphemeralKey && wallet.ephemeralManager) {
         try {
           const { signature, counter } = await wallet.signWithEphemeralKey(supporterChatMessage)
-          console.log('✅ Ephemeral signing successful:', { signature: signature?.substring(0, 10) + '...', counter })
           messageData = {
             ...messageData,
             signature: signature,
             counter: counter
           }
         } catch (ephemeralError) {
-          console.error('❌ Ephemeral signing failed:', {
+          console.error('Ephemeral signing failed:', {
             error: ephemeralError.message,
             ephemeralManagerReady: wallet.ephemeralManager?.isReady(),
             hasSignMethod: !!wallet.signWithEphemeralKey
           })
           // Don't send message if ephemeral signing fails - this prevents the counter undefined error
-          console.log('🚫 Blocking message send due to ephemeral signing failure')
           setLoading(false)
           return
         }
       }
 
       // Send supporter chat message (with or without signature)
-      console.log('📤 Sending supporter message:', {
-        type: messageData.type,
-        room: messageData.room,
-        hasSignature: !!messageData.signature,
-        messageLength: messageData.message?.length
-      })
       ws.send(JSON.stringify(messageData))
       
       setSupporterChatMessage('')
@@ -758,7 +740,7 @@ function ChatInterface() {
             content: message.message || message.content // Use message from server, fallback to content
           }
           
-          const isOwnMessage = wallet.address && mappedMessage.sender === wallet.address
+          const isOwnMessage = wallet.address && mappedMessage.sender === (wallet.address || '').toLowerCase()
           return (
             <div key={mappedMessage.id || index} className={`message-wrapper ${isOwnMessage ? 'own' : ''}`}>
               <div className="message-timestamp">
@@ -788,7 +770,7 @@ function ChatInterface() {
             content: message.message || message.content // Use message from server, fallback to content
           }
           
-          const isOwnMessage = wallet.address && mappedMessage.sender === wallet.address
+          const isOwnMessage = wallet.address && mappedMessage.sender === (wallet.address || '').toLowerCase()
           return (
             <div key={mappedMessage.id || index} className={`message-wrapper ${isOwnMessage ? 'own' : ''}`}>
               <div className="message-timestamp">

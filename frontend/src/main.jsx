@@ -39,7 +39,6 @@ const wagmiConfig = createConfig({
   publicClient,
 })
 
-console.log('Starting X402 app - mounting React root')
 const queryClient = new QueryClient()
 
 ReactDOM.createRoot(document.getElementById('root')).render(
