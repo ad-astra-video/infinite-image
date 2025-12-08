@@ -1,0 +1,12 @@
+{
+	"header":
+	{
+		"capability": "infinite-flux-2-dev",
+		"timeout_seconds": 10,
+		"request": {
+			"stream_id": "filled_in_by_server"
+		},
+		"parameters": {}
+	},
+	"stream_request": {"data": "replaced_by_the_server"}
+}
