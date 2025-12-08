@@ -26,15 +26,15 @@ const APP_NAME = process.env.APP_NAME || 'X402-Stream';
 const GATEWAY_API_KEY= process.env.GATEWAY_API_KEY;
 const GATEWAY_URL = process.env.GATEWAY_URL || "https://gateway.muxion.video";
 const FACILITATOR_URL = process.env.FACILITATOR_URL;
-const BASE_RPC_URL = process.env.BASE_RPC_URL;
+const RPC_URL = process.env.RPC_URL;
 const SWEEP_ADDRESS = process.env.SWEEP_ADDRESS;
 
-if (!BASE_RPC_URL) {
-  throw new Error("Missing BASE_RPC_URL environment variable");
+if (!RPC_URL) {
+  throw new Error("Missing RPC_URL environment variable");
 }
 
-const w3 = new Web3(BASE_RPC_URL);
-const provider = new ethers.JsonRpcProvider(BASE_RPC_URL);
+const w3 = new Web3(RPC_URL);
+const provider = new ethers.JsonRpcProvider(RPC_URL);
 const WALLET_FILE = "/wallet/eth_wallet.json";
 // USDC payment utilities
 const { createSweepTask } = require('./src/payment/usdc');
@@ -218,7 +218,7 @@ const usdcSweep = createSweepTask({
 server.listen(PORT, () => {
   logger.info(`Stream server running on port ${PORT}`);
   logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
-  logger.info(`Base RPC URL: ${BASE_RPC_URL}`);
+  logger.info(`RPC URL: ${RPC_URL}`);
   logger.info(`Facilitator URL: ${FACILITATOR_URL}`);
   logger.info(`Sweep Address: ${SWEEP_ADDRESS}`);
   

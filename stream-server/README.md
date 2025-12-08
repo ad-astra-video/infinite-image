@@ -56,7 +56,7 @@ A Node.js Express server that replicates the functionality of the original Pytho
    Edit `.env` file with your configuration:
    - `MUXION_GATEWAY_API_KEY`: Your Muxion API key
    - `FACILITATOR_URL`: x402 facilitator URL
-   - `BASE_RPC_URL`: Base network RPC URL
+   - `RPC_URL`: RPC URL for network
    - `SWEEP_ADDRESS`: Address to sweep USDC to
 
 3. **Create Wallet Directory**
@@ -82,8 +82,8 @@ A Node.js Express server that replicates the functionality of the original Pytho
 |-----------|-------------|-----------|
 | `MUXION_GATEWAY_API_KEY` | API key for Muxion streaming service | Yes |
 | `FACILITATOR_URL` | x402 payment facilitator URL | Yes |
-| `BASE_RPC_URL` | Base network RPC endpoint | Yes |
 | `NETWORK` | Network to use (base or base-sepolia) | No (default: base-sepolia) |
+| `RPC_URL` | Network RPC endpoint for network | Yes |
 | `SWEEP_ADDRESS` | Address to sweep USDC funds to | Yes |
 | `MESSAGES_SERVICE_URL` | URL of XMTP messages service (default: http://localhost:3001) | No |
 
@@ -154,14 +154,14 @@ curl http://localhost:4021/stream/url
 
 1. **Missing Environment Variables**
    - Ensure all required env vars are set in `.env`
-   - Check BASE_RPC_URL is valid
+   - Check RPC_URL is valid
 
 2. **Wallet Creation Fails**
    - Ensure `/wallet` directory exists
    - Check write permissions
 
 3. **USDC Sweep Failures**
-   - Verify BASE_RPC_URL is correct
+   - Verify RPC_URL is correct
    - Check private key is valid
    - Ensure sufficient ETH for gas fees
 
