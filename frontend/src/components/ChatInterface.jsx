@@ -288,6 +288,22 @@ function ChatInterface() {
                   }
                   return [...prev, data]
                 })
+              } else if (messageType === 'tip') {
+                // Handle tip messages - broadcast to public chat with gold styling
+                setPublicMessages(prev => {
+                  try {
+                    const tipMessage = {
+                      ...data,
+                      sender: data.userAddress || data.sender,
+                      content: data.message || data.content,
+                      messageType: 'tip'
+                    }
+                    return [...prev, tipMessage]
+                  } catch (err) {
+                    console.warn('Failed to process tip message:', err)
+                    return [...prev, data]
+                  }
+                })
               }
               
               // Update lastMessageTime for new chat messages
@@ -307,6 +323,36 @@ function ChatInterface() {
                   setTimeout(() => {
                     setTipSuccessAnimation(false)
                   }, 3000)
+                  
+                  // Automatically join supporter chat when status becomes true
+                  console.log('Supporter status confirmed, automatically joining supporter chat')
+                  if (ws && connected) {
+                    // Leave current room first if we're in a different room
+                    const currentRoom = prevRoomRef.current
+                    if (currentRoom && currentRoom !== 'supporter') {
+                      ws.send(JSON.stringify({
+                        type: 'leave_chat',
+                        room: currentRoom
+                      }))
+                    }
+                    
+                    // Join supporter chat room
+                    ws.send(JSON.stringify({
+                      type: 'join_chat',
+                      room: 'supporter',
+                      userAddress: wallet.address || 'anon',
+                      userType: 'supporter',
+                      userSignature: '',
+                      lastMessageTime: lastMessageTime || null
+                    }))
+                    
+                    // Remember that we're now in supporter room
+                    prevRoomRef.current = 'supporter'
+                    setUserJoined(true)
+                    
+                    // Switch to supporter tab to show the chat
+                    setActiveTab('supporter')
+                  }
                 }
                 
                 // Only remove system messages if user is already a supporter
@@ -741,21 +787,24 @@ function ChatInterface() {
           }
           
           const isOwnMessage = wallet.address && mappedMessage.sender === (wallet.address || '').toLowerCase()
+          const isTipMessage = mappedMessage.messageType === 'tip'
+          
           return (
-            <div key={mappedMessage.id || index} className={`message-wrapper ${isOwnMessage ? 'own' : ''}`}>
+            <div key={mappedMessage.id || index} className={`message-wrapper ${isOwnMessage ? 'own' : ''} ${isTipMessage ? 'tip-message' : ''}`}>
               <div className="message-timestamp">
                 {new Date(mappedMessage.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               </div>
-              <div className={`message ${mappedMessage.messageType || 'public'} ${isOwnMessage ? 'own' : ''}`}>
+              <div className={`message ${mappedMessage.messageType || 'public'} ${isOwnMessage ? 'own' : ''} ${isTipMessage ? 'tip' : ''}`}>
                 <div className="message-header">
                   <span className="sender">
-                    {mappedMessage.senderType === 'supporter' && <Crown size={14} />}
+                    {(mappedMessage.senderType === 'supporter' || isTipMessage) && <Crown size={14} />}
                     {truncateAddress(mappedMessage.sender)}
                     {isOwnMessage && <span className="you-badge">You</span>}
                   </span>
                 </div>
                 <div className="message-content">
                   {mappedMessage.content}
+                  {isTipMessage && <span className="tip-announcement">🎉 Tip received!</span>}
                 </div>
               </div>
             </div>

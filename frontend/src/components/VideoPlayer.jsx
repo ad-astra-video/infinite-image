@@ -119,7 +119,7 @@ function VideoPlayer({
 
       setTipMessage('')
       setTipJarOpen(false)
-      
+      setLoading(false)
       // Dispatch tip success event for chat interface
       window.dispatchEvent(new CustomEvent('tipSuccess', { detail: { amount } }))
       
@@ -133,8 +133,9 @@ function VideoPlayer({
       }
     } catch (error) {
       console.error('Failed to send tip:', error)
+    } finally {
+      console.log("Tip process completed")      
     }
-    setLoading(false)
   }
 
 

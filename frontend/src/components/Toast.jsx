@@ -49,61 +49,41 @@ export function Toast({
     }
   }
 
-  const getToastStyles = () => {
-    const baseStyles = "fixed top-4 right-4 z-50 max-w-sm w-full bg-white rounded-lg shadow-lg border transform transition-all duration-300 ease-in-out"
-    
-    if (!isVisible) {
-      return `${baseStyles} translate-x-full opacity-0`
-    }
-    
-    if (isExiting) {
-      return `${baseStyles} translate-x-full opacity-0`
-    }
-    
-    return `${baseStyles} translate-x-0 opacity-100`
-  }
-
-  const getBorderColor = () => {
+  const getIconClass = () => {
     switch (type) {
       case 'success':
-        return 'border-l-green-500 border-t border-r border-b border-gray-200'
+        return 'toast-icon success'
       case 'warning':
-        return 'border-l-yellow-500 border-t border-r border-b border-gray-200'
+        return 'toast-icon warning'
       case 'error':
-        return 'border-l-red-500 border-t border-r border-b border-gray-200'
+        return 'toast-icon error'
       default:
-        return 'border-l-blue-500 border-t border-r border-b border-gray-200'
+        return 'toast-icon info'
     }
   }
 
   if (!isVisible) return null
 
   return (
-    <div className={getToastStyles()}>
-      <div className={`p-4 ${getBorderColor()}`}>
-        <div className="flex items-start">
-          <div className="flex-shrink-0">
-            {getIcon()}
-          </div>
-          <div className="ml-3 flex-1">
-            <p className="text-sm font-medium text-gray-900">
-              {message}
-            </p>
-            {action && (
-              <div className="mt-2">
-                {action}
-              </div>
-            )}
-          </div>
-          <div className="ml-4 flex-shrink-0">
-            <button
-              onClick={handleClose}
-              className="inline-flex text-gray-400 hover:text-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 rounded"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
+    <div className={`toast ${isExiting ? 'hidden' : ''}`}>
+      <div className="toast-content">
+        <div className={getIconClass()}>
+          {getIcon()}
         </div>
+        <div className="toast-text">
+          <p>{message}</p>
+          {action && (
+            <div className="toast-action">
+              {action}
+            </div>
+          )}
+        </div>
+        <button
+          onClick={handleClose}
+          className="toast-close"
+        >
+          <X className="w-4 h-4" />
+        </button>
       </div>
     </div>
   )
@@ -111,8 +91,8 @@ export function Toast({
 
 export function ToastContainer({ children }) {
   return (
-    <div className="fixed top-0 right-0 z-50 p-4 pointer-events-none">
-      <div className="flex flex-col space-y-2">
+    <div className="toast-container">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
         {children}
       </div>
     </div>

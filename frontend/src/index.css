@@ -11,6 +11,15 @@
   --glass-border: rgba(255, 255, 255, 0.1);
   --shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
   --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  
+  /* Toast specific variables */
+  --toast-bg: var(--bg-secondary);
+  --toast-border: var(--border-color);
+  --toast-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --toast-success: #10b981;
+  --toast-warning: #f59e0b;
+  --toast-error: #ef4444;
+  --toast-info: var(--accent-primary);
 }
 
 * {
@@ -98,6 +107,109 @@ body {
   font-weight: 500;
   cursor: pointer;
   transition: var(--transition);
+}
+
+/* Toast notification styles */
+.toast {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 50;
+  max-width: 400px;
+  width: 100%;
+  background: var(--toast-bg);
+  border: 1px solid var(--toast-border);
+  border-radius: 12px;
+  box-shadow: var(--toast-shadow);
+  transform: translateX(0);
+  opacity: 1;
+  transition: var(--transition);
+}
+
+.toast.hidden {
+  transform: translateX(100%);
+  opacity: 0;
+}
+
+.toast-content {
+  padding: 16px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.toast-icon {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+}
+
+.toast-icon.success {
+  color: var(--toast-success);
+}
+
+.toast-icon.warning {
+  color: var(--toast-warning);
+}
+
+.toast-icon.error {
+  color: var(--toast-error);
+}
+
+.toast-icon.info {
+  color: var(--toast-info);
+}
+
+.toast-text {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.toast-action {
+  margin-top: 8px;
+}
+
+.toast-close {
+  flex-shrink: 0;
+  margin-left: 16px;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  transition: var(--transition);
+}
+
+.toast-close:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.toast-close:focus {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+/* Toast container */
+.toast-container {
+  position: fixed;
+  top: 0;
+  right: 0;
+  z-index: 50;
+  padding: 16px;
+  pointer-events: none;
+}
+
+.toast-container .toast {
+  margin-bottom: 8px;
+  pointer-events: auto;
+}
+
+.btn-link {
   display: inline-flex;
   align-items: center;
   gap: 8px;

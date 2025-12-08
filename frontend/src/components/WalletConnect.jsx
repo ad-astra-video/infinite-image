@@ -27,7 +27,7 @@ export function WalletProvider({ children }) {
   
   // Enhanced authentication state
   const [ephemeralManager, setEphemeralManager] = useState(null)
-  const [enhancedAuth, setEnhancedAuth] = useState({ authenticated: false, session: null })
+  const [enhancedAuth, setEnhancedAuth] = useState({ authenticated: false, expiresAt: null, expired: false })
   
   // Toast notification state for session warnings
   const [sessionWarning, setSessionWarning] = useState({ show: false, message: '', action: null })
@@ -240,7 +240,8 @@ export function WalletProvider({ children }) {
       // Create SIWE message with delegation
       console.log('4. Creating SIWE message with ephemeral delegation...')
       const delegationData = `ephemeralPublicKey=${ephemeralPublicKey}`;
-      
+      const expiresAt = new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString() // 4 hours from now
+
       const siweMessage = new SiweMessage({
         domain: window.location.host,
         address: address, // Main wallet address signs the SIWE
@@ -250,7 +251,7 @@ export function WalletProvider({ children }) {
         chainId: networkChain?.id || chain?.id || 84532,
         nonce: nonce,
         issuedAt: new Date().toISOString(),
-        expirationTime: new Date(Date.now() + 1 * 60 * 1000).toISOString()
+        expirationTime: expiresAt
       })
 
       // Sign SIWE message
@@ -272,7 +273,6 @@ export function WalletProvider({ children }) {
         throw new Error(verificationData.error || 'SIWE verification failed')
       }
 
-      console.log('8. Enhanced SIWE authentication successful!')
       setLoginAddress(address)
       setLoginPrompted(true)
       setSiweValidated(true)
@@ -281,7 +281,8 @@ export function WalletProvider({ children }) {
       setEphemeralManager(ephemeralManager)
       setEnhancedAuth({
         authenticated: true,
-        ephemeralKey: ephemeralPublicKey
+        expiresAt: expiresAt,
+        expired: false
       })
 
       return {
@@ -322,8 +323,7 @@ export function WalletProvider({ children }) {
       if (data.success) {
         setEnhancedAuth({
           authenticated: data.data.authenticated,
-          session: data.data,
-          address: data.data.address
+          expired: data.data.expired,
         })
 
         // Check if session expires soon and show warning toast
@@ -371,7 +371,7 @@ export function WalletProvider({ children }) {
 
       // Reset state
       setEphemeralManager(null)
-      setEnhancedAuth({ authenticated: false, session: null })
+      setEnhancedAuth({ authenticated: false, expired: false, expiresAt: null })
 
       console.log('Secure logout completed')
     } catch (error) {

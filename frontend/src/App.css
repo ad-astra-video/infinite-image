@@ -885,6 +885,42 @@
   border-radius: 12px 12px 2px 12px;
 }
 
+/* Tip message styling with gold background */
+.message.tip {
+  background: linear-gradient(135deg, #FFD700 0%, #FFA500 50%, #FF8C00 100%);
+  border: 2px solid #DAA520;
+  box-shadow: 0 4px 12px rgba(255, 215, 0, 0.3);
+  color: #000000;
+  font-weight: 600;
+  max-width: 85%;
+}
+
+.message-wrapper.tip-message {
+  margin-bottom: 20px;
+  animation: tipMessagePulse 2s ease-in-out;
+}
+
+@keyframes tipMessagePulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.02); }
+  100% { transform: scale(1); }
+}
+
+.tip-badge {
+  margin-right: 8px;
+  font-size: 16px;
+}
+
+.tip-announcement {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #8B4513;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
 .message-header {
   margin-bottom: 4px;
   font-size: 12px;
