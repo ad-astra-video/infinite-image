@@ -8,13 +8,17 @@ const crypto = require('crypto');
 const ironSessionOptions = {
   cookieName: 'x402_session',
   password: process.env.SESSION_PASSWORD || 'complex_password_at_least_32_characters_long',
+  // Allow explicit override of cookie domain for local/dev testing via
+  // SESSION_COOKIE_DOMAIN. If not provided, only set the production domain
+  // when NODE_ENV === 'production'. Otherwise leave undefined so cookies
+  // are host-scoped (works for localhost).
   cookieOptions: {
     secure: process.env.NODE_ENV === 'production', // HTTPS only in production
     sameSite: 'lax', // CSRF protection
     httpOnly: true, // Prevent XSS attacks
     maxAge: 24 * 60 * 60, // 24 hours in seconds
     path: '/', // Available site-wide
-    domain: process.env.NODE_ENV === 'production' ? '.x402-stream.com' : undefined
+    domain: process.env.DOMAIN || "localhost"
   },
   ttl: 24 * 60 * 60, // Session TTL in seconds
   cookie: {

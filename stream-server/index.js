@@ -22,7 +22,7 @@ const logger = {
 };
 
 // Get configuration from environment
-const APP_NAME = process.env.APP_NAME || 'X402-Stream';
+const APP_NAME = process.env.APP_NAME || 'infinite-stream';
 const GATEWAY_API_KEY= process.env.GATEWAY_API_KEY;
 const GATEWAY_URL = process.env.GATEWAY_URL || "https://gateway.muxion.video";
 const FACILITATOR_URL = process.env.FACILITATOR_URL;
@@ -102,7 +102,7 @@ const streamRouter = new StreamRouter({
 
 // Create the app and mount routes
 const app = express();
-const PORT = 4021;
+const PORT = process.env.PORT || 8000;
 
 // USDC contract addresses for different networks
 const NETWORK = process.env.NETWORK || "base-sepolia";
@@ -137,6 +137,10 @@ app.use(cors({
 app.use(express.json());
 
 // Apply iron-session middleware for all routes
+// Trust proxy so req.ip reflects the original client IP when behind a proxy/load-balancer
+app.set('trust proxy', true);
+
+// Apply iron-session middleware for all routes
 app.use(sessionMiddleware);
 
 
@@ -163,8 +167,13 @@ logger.info('Routes mounted: /api/auth, /api/chat, /api/messages, /api/stream, /
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 1000, // limit each IP to 1000 requests per windowMs
+  // When `trust proxy` is enabled, supply an explicit keyGenerator to avoid
+  // ERR_ERL_PERMISSIVE_TRUST_PROXY. Using `req.ip` here is acceptable when
+  // you control the proxy or set a specific proxy trust value.
+  keyGenerator: (req) => req.ip,
 });
 app.use(limiter);
+
 
 // Serve frontend static files from ../frontend/dist at root "/"
 const frontendDist = path.join(__dirname, '..', 'frontend', 'dist');
@@ -224,8 +233,8 @@ server.listen(PORT, () => {
   
   // Start background sweep task
   usdcSweep.startSweepTask();
-  
-  logger.info("x402-Stream stream server initialized successfully");
+
+  logger.info("infinite-stream server initialized successfully");
 });
 
 // Graceful shutdown handler - perform final USDC sweep on server close

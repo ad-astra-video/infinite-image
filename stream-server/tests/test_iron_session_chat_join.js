@@ -31,9 +31,9 @@ function createMockIronSession(address, ephemeralData = null) {
     siwe: {
       signature: '0x1234567890abcdef',
       message: {
-        domain: 'x402-stream.com',
+        domain: 'infinite-stream.com',
         address: address,
-        statement: 'Sign in with Ethereum to X402 Stream',
+        statement: 'Sign in with Ethereum to infinite-stream',
         nonce: 'test-nonce-123',
         issuedAt: new Date().toISOString(),
         expirationTime: new Date(Date.now() + 3600000).toISOString() // 1 hour from now

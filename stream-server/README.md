@@ -198,4 +198,4 @@ DEBUG=* npm start
 
 ## License
 
-This project is part of the x402-Stream repository.
+This project is part of the infinite-stream repository.
