@@ -1,42 +1,49 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
+
+import { WagmiConfig, http, createConfig } from 'wagmi'
+import { base } from 'wagmi/chains'
+import { RainbowKitProvider, connectorsForWallets } from '@rainbow-me/rainbowkit'
+import { 
+  metaMaskWallet,
+  coinbaseWallet,
+  injectedWallet,
+} from '@rainbow-me/rainbowkit/wallets'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+
+import App from './App'
 import { WalletProvider } from './components/WalletConnect'
 import ErrorBoundary from './components/ErrorBoundary'
-import './index.css'
-import App from './App.jsx'
+
 import '@rainbow-me/rainbowkit/styles.css'
+import './index.css'
 
-// Wagmi + RainbowKit setup (Base network only)
-import { configureChains, createConfig, WagmiConfig } from 'wagmi'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { InjectedConnector } from 'wagmi/connectors/injected'
-import { publicProvider } from 'wagmi/providers/public'
-import { base } from 'wagmi/chains'
-import { getDefaultWallets, RainbowKitProvider } from '@rainbow-me/rainbowkit'
+// Create connectors WITHOUT WalletConnect
+const connectors = connectorsForWallets(
+  [
+    {
+      groupName: 'Recommended',
+      wallets: [
+        metaMaskWallet,
+        coinbaseWallet,
+        injectedWallet,
+      ],
+    },
+  ],
+  {
+    appName: 'infinite-stream',
+    projectId: 'dummy-project-id', // RainbowKit still needs this field, but won't use it without WC
+  }
+)
 
-const { chains, publicClient } = configureChains([base], [publicProvider()])
-
-// Read WalletConnect Cloud projectId from env (Vite): VITE_WALLETCONNECT_PROJECT_ID
-const projectId = import.meta.env.VITE_WALLETCONNECT_PROJECT_ID || Math.random().toString(36).substring(7)
-
-let connectors = []
-if (projectId) {
-  const defaults = getDefaultWallets({
-    appName: import.meta.env.VITE_APP_NAME || 'X402-Stream',
-    chains,
-    projectId,
-  })
-  connectors = defaults.connectors
-} else {
-  // No projectId provided — using random string for basic WalletConnect functionality
-  console.warn('Using random projectId for WalletConnect v2. For production, set VITE_WALLETCONNECT_PROJECT_ID in your .env')
-  connectors = [new InjectedConnector({ chains })]
-}
-
+// Create Wagmi config
 const wagmiConfig = createConfig({
-  autoConnect: true,
   connectors,
-  publicClient,
+  chains: [base],
+  transports: {
+    [base.id]: http()
+  },
+  ssr: false,
 })
 
 const queryClient = new QueryClient()
@@ -45,7 +52,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <WagmiConfig config={wagmiConfig}>
       <QueryClientProvider client={queryClient}>
-        <RainbowKitProvider chains={chains}>
+        <RainbowKitProvider chains={[base]}>
           <WalletProvider>
             <ErrorBoundary>
               <App />

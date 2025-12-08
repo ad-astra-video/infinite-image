@@ -1,7 +1,7 @@
 import React, { useEffect, createContext, useContext, useMemo, useRef, useCallback, useState } from 'react'
 import { ConnectButton } from '@rainbow-me/rainbowkit'
-import { useAccount, useBalance, useContractRead, useSignTypedData, useSignMessage, useNetwork } from 'wagmi'
-import { Wallet, CheckCircle, AlertTriangle, DollarSign, X } from 'lucide-react'
+import { useAccount, useContractRead, useSignTypedData, useSignMessage } from 'wagmi'
+import { Wallet, CheckCircle, AlertTriangle, DollarSign } from 'lucide-react'
 import { buildX402TypedData } from '../utils/x402'
 import { API_BASE } from '../utils/apiConfig'
 import { SiweMessage } from 'siwe'
@@ -20,11 +20,10 @@ const X402SignerContext = createContext(null)
 // New comprehensive Wallet Provider - Centralizes all wallet functionality
 export function WalletProvider({ children }) {
   const { address, isConnected, chain } = useAccount()
-  const { chain: networkChain } = useNetwork() // Get network chain info
   const { signTypedDataAsync } = useSignTypedData()
   const { signMessageAsync } = useSignMessage()
-  const accountRef = useRef({ address, isConnected, chain: networkChain || chain })
-  
+  const accountRef = useRef({ address, isConnected, chain })
+
   // Enhanced authentication state
   const [ephemeralManager, setEphemeralManager] = useState(null)
   const [enhancedAuth, setEnhancedAuth] = useState({ authenticated: false, expiresAt: null, expired: false })
@@ -33,7 +32,7 @@ export function WalletProvider({ children }) {
   const [sessionWarning, setSessionWarning] = useState({ show: false, message: '', action: null })
   
   // App name state from backend
-  const [appName, setAppName] = useState('X402-Stream')
+  const [appName, setAppName] = useState('infinite-stream')
 
   // Fetch app name from backend
   useEffect(() => {
@@ -41,10 +40,10 @@ export function WalletProvider({ children }) {
       try {
         const response = await fetch(`${API_BASE}/api/name`)
         const data = await response.json()
-        setAppName(data.name || 'X402-Stream')
+        setAppName(data.name || 'infinite-stream')
       } catch (error) {
         console.warn('Failed to fetch app name from backend, using default:', error.message)
-        setAppName('X402-Stream')
+        setAppName('infinite-stream')
       }
     }
 
@@ -102,9 +101,8 @@ export function WalletProvider({ children }) {
 
   // Update account ref whenever account data changes
   useEffect(() => {
-    // Prefer networkChain (from useNetwork) when available, fallback to useAccount chain
-    accountRef.current = { address, isConnected, chain: networkChain || chain }
-  }, [address, isConnected, chain, networkChain])
+    accountRef.current = { address, isConnected, chain }
+  }, [address, isConnected, chain])
 
   // SIWE Authentication state management
   const [loginAddress, setLoginAddress] = useState(null)
@@ -143,7 +141,7 @@ export function WalletProvider({ children }) {
     }
     
     return await performEnhancedSIWE()
-  }, [isConnected, address, signMessageAsync, chain, networkChain])
+  }, [isConnected, address, signMessageAsync, chain])
 
   // Wrapper function for SIWE authentication - provides consistent naming
   const createLoginSignature = useCallback(async () => {
@@ -248,7 +246,7 @@ export function WalletProvider({ children }) {
         statement: `Authorize ephemeral key binding to sign chat messages: ${delegationData}`,
         uri: window.location.origin,
         version: '1',
-        chainId: networkChain?.id || chain?.id || 84532,
+        chainId: chain?.id || 84532,
         nonce: nonce,
         issuedAt: new Date().toISOString(),
         expirationTime: expiresAt
@@ -294,7 +292,7 @@ export function WalletProvider({ children }) {
       console.error('Enhanced SIWE authentication failed:', error)
       throw error
     }
-  }, [isConnected, address, signMessageAsync, networkChain, chain])
+  }, [isConnected, address, signMessageAsync, chain])
 
   // Sign message with ephemeral key (for chat messages)
   const signWithEphemeralKey = useCallback(async (message) => {
@@ -401,7 +399,7 @@ export function WalletProvider({ children }) {
       // Account data
       address,
       isConnected,
-      chain: networkChain || chain,
+      chain: chain,
 
       // Balance data
       usdcBalance,
