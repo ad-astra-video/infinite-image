@@ -2,10 +2,16 @@ services:
   stream-server:
     build:
       context: .
+      dockerfile: Dockerfile
     image: ad-astra-video/stream-server:latest
     container_name: byoc-stream-server
+    env_file:
+      - stream-server/.env
     volumes:
-      - ./data/wallet:/wallet
+      - ./frontend/dist:/app/frontend/dist
     ports:
-      - 8000:8000
-    
+      - 4021:4021
+    environment:
+      - NODE_ENV=development
+      - PORT=4021
+    restart: unless-stopped

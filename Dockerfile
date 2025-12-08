@@ -1,36 +1,45 @@
-# ============================
-# Stage 1: Build dependencies
-# ============================
-FROM python:3.11-slim AS builder
+FROM node:22-alpine AS builder
 
-# Install build deps
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    && rm -rf /var/lib/apt/lists/*
-
+# set workdir
 WORKDIR /app
 
-# Install dependencies into /install
-COPY requirements.txt .
-RUN pip install --prefix=/install --no-cache-dir -r requirements.txt
+# Copy package files for frontend and stream-server to leverage layer caching
+# Copy package files for caching
+COPY frontend/package*.json ./frontend/
+COPY stream-server/package*.json ./stream-server/
 
-# ============================
-# Stage 2: Runtime image
-# ============================
-FROM python:3.11-slim
+# Copy full stream-server sources early so server files (index.js) are present
+COPY stream-server/ ./stream-server/
 
-ENV PYTHONUNBUFFERED=1
+# Copy full frontend sources, install deps, and build
+COPY frontend/ ./frontend/
+WORKDIR /app/frontend
+# Use npm ci when a lockfile exists, otherwise fall back to npm install
+# Install build tools on Alpine for native modules (removed in final image)
+RUN apk add --no-cache python3 make build-base linux-headers
+RUN if [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then npm ci; else npm install; fi
+RUN npm run build
 
-WORKDIR /app
+# Copy stream-server sources and install production deps
+COPY stream-server/ ./stream-server/
+WORKDIR /app/stream-server
+# Install production deps (use npm install --production to respect package.json even if lockfile is stale)
+RUN npm install --production
 
-# Copy built dependencies
-COPY --from=builder /install /usr/local
+# Final runtime image
+FROM node:22-alpine AS runtime
+WORKDIR /app/stream-server
 
-# Copy your FastAPI app
-COPY . .
+# Copy server files + node_modules from builder
+COPY --from=builder /app/stream-server /app/stream-server
 
-# Expose Uvicorn port
-EXPOSE 8000
+# Copy built frontend into `/app/frontend/dist` so the server can serve it from
+# `path.join(__dirname, '..', 'frontend', 'dist')` at runtime.
+RUN mkdir -p /app/frontend
+COPY --from=builder /app/frontend/dist /app/frontend/dist
 
-# Start FastAPI
-CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000"]
+ENV NODE_ENV=production
+EXPOSE 4021
+
+# Use npm start (ensure package.json has a start script); adjust to ["node","index.js"] if needed
+CMD ["npm", "run", "start"]
