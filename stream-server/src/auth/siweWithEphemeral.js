@@ -66,27 +66,20 @@ class SIWEWithEphemeralHandler {
    * @param {object} siweMessage - SIWE message object
    * @returns {Promise<object>} Verification result
    */
-  async verifyEnhancedSIWE(req, signature, siweMessage) {
-    console.log('🔍 DEBUG SIWE HANDLER: Starting verification')
-    console.log('🔍 DEBUG SIWE HANDLER: SIWE message statement:', siweMessage.statement)
-    
+  async verifyEnhancedSIWE(req, signature, siweMessage) {    
     try {
       // Parse and validate SIWE message
       const siweMessageObj = new SiweMessage(siweMessage);
-      console.log('🔍 DEBUG SIWE HANDLER: SIWE message parsed successfully')
       
       // Verify SIWE signature using standard method
       const fields = await siweMessageObj.verify({ signature });
-      console.log('🔍 DEBUG SIWE HANDLER: SIWE signature verified successfully')
       
       // Extract delegation data from SIWE message statement
       const delegation = this.parseDelegationFromStatement(siweMessageObj.statement);
-      console.log('🔍 DEBUG SIWE HANDLER: Delegation data parsed:', delegation)
       
       // If no delegation found, try to extract ephemeral key from statement
       let ephemeralKeyInStatement = null;
       if (!delegation) {
-        console.log('🔍 DEBUG SIWE HANDLER: No delegation found in SIWE message')
         throw new Error('No ephemeral delegation found in SIWE message');
       }
 
@@ -185,26 +178,20 @@ class SIWEWithEphemeralHandler {
       if (!statement || typeof statement !== 'string') return null;
 
       // Look for delegation pattern in statement - check for "ephemeralPublicKey="
-          console.log('🔍 DEBUG SIWE HANDLER: Parsing statement for delegation:', statement)
           const bindingMatch = statement.match(/ephemeralPublicKey=+(.*)/i);
-          console.log('🔍 DEBUG SIWE HANDLER: Regex match result:', bindingMatch)
           
           if (bindingMatch) {
             const delegationString = bindingMatch[1];
-            console.log('🔍 DEBUG SIWE HANDLER: Found delegation string:', delegationString);
             
             if (delegationString) {
-              console.log('🔍 DEBUG SIWE HANDLER: Parsed delegation data:', delegationString);
               return {
                 ephemeralPublicKey: delegationString.trim(),
               };
             }
           }
-          
-          console.log('🔍 DEBUG SIWE HANDLER: No delegation found in statement:', statement);
           return null;
         } catch (error) {
-          console.error('🔍 DEBUG SIWE HANDLER: Error parsing delegation from statement:', error);
+          this.logger.error('Error parsing delegation from SIWE statement:', error);
           return null;
         }
       }
@@ -246,11 +233,6 @@ class SIWEWithEphemeralHandler {
   getDelegationDataByAddress(userAddress) {
     // Always normalize address to lowercase for consistent lookup
     const normalizedAddress = (userAddress || '').toLowerCase();
-    this.logger.info('Looking up delegation for address:', {
-      originalAddress: userAddress,
-      normalizedAddress: normalizedAddress
-    });
-    this.logger.info('Delegation store size:', this.delegationStore.size);
     
     const delegation = this.delegationStore.get(normalizedAddress);
     if (!delegation) {
@@ -265,13 +247,6 @@ class SIWEWithEphemeralHandler {
       return null;
     }
 
-    this.logger.info('Delegation found for address:', {
-      normalizedAddress: normalizedAddress,
-      ephemeralPublicKey: delegation.ephemeralPublicKey,
-      normalizedEphemeralKey: delegation.ephemeralPublicKey?.toLowerCase(),
-      expiresAt: delegation.expiresAt
-    });
-    
     return delegation;
   }
 
@@ -352,7 +327,7 @@ class SIWEWithEphemeralHandler {
       const address = userAddress.toLowerCase();
       const delegation = this.delegationStore.get(address);
       if (delegation) {
-        this.logger.info('🔄 Updating delegation counter:', {
+        this.logger.info('Updating delegation counter:', {
           address: address.substring(0, 8) + '...',
           oldCounter: delegation.counter,
           newCounter: newCounter
@@ -362,7 +337,7 @@ class SIWEWithEphemeralHandler {
         this.delegationStore.set(address, delegation);
         return true;
       } else {
-        this.logger.warn('⚠️ No delegation found for address:', address.substring(0, 8) + '...')
+        this.logger.warn('No delegation found for address:', address.substring(0, 8) + '...')
       }
       return false;
     } catch (error) {

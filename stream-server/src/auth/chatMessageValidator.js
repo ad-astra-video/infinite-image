@@ -27,24 +27,11 @@ class ChatMessageValidator {
   async validateChatMessage({ message, signature, counter, userAddress }) {
     try {
       let delegation = null;
-      
-      this.logger.info('🔍 Validating chat message:', {
-        userAddress: userAddress?.substring(0, 8) + '...',
-        counter: counter,
-        hasSignature: !!signature,
-        messageLength: message?.length
-      })
-      
+            
       // Handle delegationStore lookup by userAddress (preferred method)
       // Skip delegation validation for anonymous users
       if (userAddress && userAddress !== 'anon' && this.siweHandler) {
         delegation = this.siweHandler.getDelegationDataByAddress(userAddress);
-        this.logger.info('📋 Delegation lookup result:', {
-          found: !!delegation,
-          hasEphemeralKey: !!delegation?.ephemeralPublicKey,
-          storedCounter: delegation?.counter,
-          expiresAt: delegation?.expiresAt
-        })
         if (!delegation) {
           throw new Error('No valid delegation found for user address');
         }

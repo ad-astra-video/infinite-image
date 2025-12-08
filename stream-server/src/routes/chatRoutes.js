@@ -295,7 +295,7 @@ class ChatRouter {
     
     // Check permissions for supporter chat
     if (room === 'supporter' && !this.chatRooms.supporter.allowedUsers.has(finalAddress)) {
-      this.sendError(ws, 'Access denied: Supporter chat requires tip verification');
+      //this.sendError(ws, 'Access denied: Supporter chat requires tip verification');
       return;
     }
     

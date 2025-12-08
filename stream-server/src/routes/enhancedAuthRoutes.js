@@ -41,9 +41,6 @@ class EnhancedAuthRoutes {
 
     // Logout with secure session destruction
     this.router.post('/logout', validateSession, this.handleLogout.bind(this));
-
-    // Get auth statistics (debug endpoint)
-    this.router.get('/stats', this.handleStats.bind(this));
   }
 
   /**
@@ -86,19 +83,11 @@ class EnhancedAuthRoutes {
   /**
    * Enhanced SIWE verification with ephemeral delegation
    */
-  async handleSIWEVerification(req, res) {
-    console.log('🔍 DEBUG BACKEND: SIWE verification request received')
-    console.log('🔍 DEBUG BACKEND: Request body:', {
-      signature: req.body.signature ? 'present' : 'missing',
-      siweMessage: req.body.siweMessage ? 'present' : 'missing',
-      address: req.body.address
-    })
-    
+  async handleSIWEVerification(req, res) {    
     try {
       const { signature, siweMessage, address } = req.body;
 
       if (!signature || !siweMessage || !address) {
-        console.log('🔍 DEBUG BACKEND: Missing required fields')
         return res.status(400).json({
           success: false,
           error: 'MISSING_REQUIRED_FIELDS',
@@ -156,12 +145,6 @@ class EnhancedAuthRoutes {
         address: verification.address,
         ephemeralKey: verification.delegation.ephemeralPublicKey.substring(0, 8) + '...'
       });
-
-      console.log('🔍 DEBUG BACKEND: SIWE verification successful!')
-      console.log('🔍 DEBUG BACKEND: Session data stored:', {
-        address: verification.address,
-        ephemeralKey: verification.delegation.ephemeralPublicKey.substring(0, 8) + '...'
-      })
       
       res.json({
         success: true,
@@ -173,8 +156,7 @@ class EnhancedAuthRoutes {
         }
       });
     } catch (error) {
-      console.log('🔍 DEBUG BACKEND: SIWE verification failed:', error.message)
-      this.logger.error('SIWE verification error:', error);
+      this.logger.error('SIWE verification failed:', error);
       res.status(500).json({
         success: false,
         error: 'VERIFICATION_FAILED',
@@ -219,14 +201,19 @@ class EnhancedAuthRoutes {
         });
       }
 
+      // Check if session expires within 5 minutes (300,000 ms)
+      const fiveMinutes = 5 * 60 * 1000;
+      const minExpiry = Math.min(session.siwe.expiresAt, session.ephemeral.expiresAt);
+      const timeUntilExpiry = minExpiry - now;
+      const expiresSoon = timeUntilExpiry <= fiveMinutes;
+      const expired = timeUntilExpiry <= 0;
       // Session is valid
       res.json({
         success: true,
         data: {
           authenticated: true,
-          address: session.address,
-          counter: session.ephemeral.counter,
-          expiresAt: Math.min(session.siwe.expiresAt, session.ephemeral.expiresAt)
+          expiresSoon: expiresSoon,
+          expired: expired
         }
       });
     } catch (error) {
