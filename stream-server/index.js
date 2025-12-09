@@ -117,15 +117,18 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      connectSrc: ["'self'", "https://mainnet.base.org", "https://explorer-api.walletconnect.com", "wss://relay.walletconnect.com", "wss://relay.walletconnect.org"],
+      connectSrc: ["'self'", "https://mainnet.base.org", "https://explorer-api.walletconnect.com"],
       scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
       styleSrc: ["'self'", "'unsafe-inline'"],
       imgSrc: ["'self'", "data:", "https:"],
       fontSrc: ["'self'"],
       objectSrc: ["'none'"],
       mediaSrc: ["'self'"],
-      frameSrc: ["'self'", "https://verify.walletconnect.com", "https://verify.walletconnect.org"],
+      frameSrc: ["'self'"],
     },
+  },
+  crossOriginOpenerPolicy: {
+    policy: "same-origin-allow-popups",
   },
 }));
 app.use(cors({
