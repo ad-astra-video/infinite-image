@@ -730,16 +730,28 @@
   gap: 12px;
 }
 
-.chat-title {
+.chat-header-left {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.chat-header h3 {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 600;
+.chat-input-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.chat-input-toggle:hover {
+  background: rgba(255, 255, 255, 0.1);
   color: var(--text-primary);
 }
 
@@ -762,6 +774,16 @@
   cursor: pointer;
   transition: var(--transition);
   white-space: nowrap;
+  min-height: 32px;
+}
+
+.chat-tab-icon {
+  flex-shrink: 0;
+}
+
+.chat-tab-label {
+  font-size: 11px;
+  font-weight: 500;
 }
 
 .chat-tab.active {
@@ -797,6 +819,33 @@
   border-color: #DAA520;
   font-weight: 600;
   box-shadow: 0 0 10px rgba(218, 165, 32, 0.4);
+}
+
+/* Chat input toggle animations */
+.chat-inputs {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+}
+
+.chat-inputs.hidden {
+  max-height: 0;
+  opacity: 0;
+  transform: translateY(-10px);
+}
+
+.chat-inputs:not(.hidden) {
+  max-height: 200px;
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Ensure smooth transitions for chat header elements */
+.chat-header-left {
+  transition: all 0.2s ease;
+}
+
+.chat-tab {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* Room count badge styling */
@@ -1267,7 +1316,7 @@
     position: relative;
     width: calc(100% - 10vw);
     max-width: none;
-    height: 350px;
+    height: 400px;
     margin: 12px;
     margin-left: auto;
     margin-right: auto;
@@ -1275,17 +1324,43 @@
     display: flex;
   }
   
-  .chat-content {
-    display: flex;
-    flex-direction: column;
-    flex: 1;
-    min-height: 0;
+  .chat-header {
+    padding: 8px 12px;
+    min-height: 48px;
+  }
+  
+  .chat-header-left {
+    gap: 6px;
+  }
+  
+  .chat-input-toggle {
+    width: 36px;
+    height: 36px;
+  }
+  
+  .chat-tabs {
+    gap: 3px;
+  }
+  
+  .chat-tab {
+    padding: 4px 6px;
+    font-size: 10px;
+    min-height: 36px;
+  }
+  
+  .chat-tab-icon {
+    width: 16px;
+    height: 16px;
+  }
+  
+  .chat-tab-label {
+    font-size: 9px;
   }
   
   .messages-container {
     flex: 1 1 auto;
     min-height: 0;
-    max-height: 200px;
+    max-height: 280px;
     overflow-y: auto;
     overflow-x: hidden;
     contain: layout;
@@ -1293,16 +1368,15 @@
   
   .chat-inputs {
     flex-shrink: 0;
-    padding: 8px;
+    padding: 6px;
+    transition: all 0.3s ease;
   }
   
-  .chat-tabs {
-    gap: 2px;
-  }
-  
-  .chat-tab {
-    padding: 4px 8px;
-    font-size: 11px;
+  .chat-inputs.hidden {
+    max-height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    overflow: hidden;
   }
 }
 
@@ -1334,7 +1408,7 @@
     position: relative;
     width: calc(100% - 5vw);
     max-width: none;
-    height: 320px;
+    height: 360px;
     margin: 6px;
     margin-left: auto;
     margin-right: auto;
@@ -1342,17 +1416,43 @@
     display: flex;
   }
   
-  .chat-content {
-    display: flex;
-    flex-direction: column;
-    flex: 1;
-    min-height: 0;
+  .chat-header {
+    padding: 6px 8px;
+    min-height: 44px;
+  }
+  
+  .chat-header-left {
+    gap: 4px;
+  }
+  
+  .chat-input-toggle {
+    width: 32px;
+    height: 32px;
+  }
+  
+  .chat-tabs {
+    gap: 2px;
+  }
+  
+  .chat-tab {
+    padding: 3px 4px;
+    font-size: 9px;
+    min-height: 32px;
+  }
+  
+  .chat-tab-icon {
+    width: 14px;
+    height: 14px;
+  }
+  
+  .chat-tab-label {
+    font-size: 8px;
   }
   
   .messages-container {
     flex: 1 1 auto;
     min-height: 0;
-    max-height: 170px;
+    max-height: 250px;
     overflow-y: auto;
     overflow-x: hidden;
     contain: layout;
@@ -1360,7 +1460,15 @@
   
   .chat-inputs {
     flex-shrink: 0;
-    padding: 6px;
+    padding: 4px;
+    transition: all 0.3s ease;
+  }
+  
+  .chat-inputs.hidden {
+    max-height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    overflow: hidden;
   }
   
   .wallet-connect-layout {

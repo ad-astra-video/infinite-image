@@ -9,7 +9,6 @@ import {
   coinbaseWallet,
   injectedWallet,
 } from '@rainbow-me/rainbowkit/wallets'
-import { metaMaskDeeplinkWallet } from './metaMaskDeeplinkWallet'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 import App from './App'
@@ -24,19 +23,11 @@ const connectors = connectorsForWallets(
   [
     {
       groupName: 'Recommended',
-      wallets: (() => {
-        const isMobile = typeof window !== 'undefined' && /Mobi|Android|iPhone/.test(navigator.userAgent);
-        const baseWallets = [
-          metaMaskWallet,
-          coinbaseWallet,
-        ];
-        if (isMobile) {
-          baseWallets.push(metaMaskDeeplinkWallet);
-        } else {
-          baseWallets.push(injectedWallet);
-        }
-        return baseWallets;
-      })(),
+      wallets: [
+        metaMaskWallet,
+        coinbaseWallet,
+        injectedWallet,
+      ],
     },
   ],
   {

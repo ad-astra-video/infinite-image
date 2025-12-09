@@ -9,11 +9,6 @@ export const metaMaskDeeplinkWallet = {
     const connector = injected();
     return {
       connector,
-      mobile: {
-        getUri: () => {
-          return `https://metamask.app.link/dapp/${window.location.host}`;
-        },
-      },
     };
   },
 };

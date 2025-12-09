@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { Send, MessageCircle, Users, Shield, Crown, Lock, Clock } from 'lucide-react'
+import { Send, MessageCircle, Users, Shield, Crown, Lock, Clock, ChevronUp, ChevronDown } from 'lucide-react'
 import { useWallet } from './WalletConnect'
 import { API_BASE } from '../utils/apiConfig'
 
@@ -20,6 +20,7 @@ function ChatInterface() {
   const [roomCounts, setRoomCounts] = useState({})
   const [cooldownTimer, setCooldownTimer] = useState(0)
   const [cooldownInterval, setCooldownInterval] = useState(null)
+  const [showChatInput, setShowChatInput] = useState(true)
   const messagesEndRef = useRef(null)
   const messageInputRef = useRef(null)
   const prevRoomRef = useRef(null)
@@ -580,7 +581,7 @@ function ChatInterface() {
       ws.send(JSON.stringify(messageData))
       
       setNewMessage('')
-      setLastMessageTime(now)
+      setLastMessageTime(Date.now())
     } catch (error) {
       console.error('Failed to send public message:', error)
     }
@@ -735,13 +736,19 @@ function ChatInterface() {
   return (
     <div className="chat-interface">
       <div className="chat-header">
-        <div className="chat-title">
-          <h3>Chat</h3>
+        <div className="chat-header-left">
           <span
             className={`connection-indicator ${connected ? 'connected' : 'disconnected'}`}
             title={connected ? 'Connected' : 'Disconnected'}
             aria-hidden="true"
           />
+          <button
+            className="chat-input-toggle"
+            onClick={() => setShowChatInput(!showChatInput)}
+            title={showChatInput ? 'Hide chat input' : 'Show chat input'}
+          >
+            {showChatInput ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+          </button>
         </div>
         <div className="chat-tabs">
           {Object.entries(messageTypes).map(([key, type]) => {
@@ -768,7 +775,7 @@ function ChatInterface() {
                 <div className="room-count-badge">
                   {roomCounts[key] || 0}
                 </div>
-                {type.label}
+                <Icon size={16} className="chat-tab-icon" />
                 {isDisabled && <Lock size={12} className="lock-icon" />}
               </button>
             )
@@ -843,7 +850,7 @@ function ChatInterface() {
         <div ref={messagesEndRef} />
       </div>
 
-      <div className="chat-inputs">
+      <div className={`chat-inputs ${!showChatInput ? 'hidden' : ''}`}>
         {/* Cooldown Timer Display for Anonymous Users */}
         {!wallet.isConnected && activeTab === 'public' && cooldownTimer > 0 && (
           <div className="cooldown-timer">
@@ -854,43 +861,45 @@ function ChatInterface() {
           </div>
         )}
         
-        <div className="input-group">
-          <textarea
-            ref={messageInputRef}
-            rows={2}
-            placeholder={
-              activeTab === 'supporter' ? "Enter supporter chat message..." :
-              "Enter public message..."
-            }
-            value={currentInput.value}
-            onChange={(e) => currentInput.setValue(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault()
-                currentInput.send()
+        {showChatInput && (
+          <div className="input-group">
+            <textarea
+              ref={messageInputRef}
+              rows={2}
+              placeholder={
+                activeTab === 'supporter' ? "Enter supporter chat message..." :
+                "Enter public message..."
               }
-            }}
-            // Allow typing for public chat even when WebSocket isn't connected so users can draft messages.
-            // For supporter chat, keep input disabled when not connected to avoid confusing payment flows.
-            disabled={loading || (activeTab === 'supporter' && !connected) || (!wallet.isConnected && activeTab === 'public' && cooldownTimer > 0)}
-            className="message-input"
-          />
-          <button
-            onClick={currentInput.send}
-            // Public chat: enable send button even if WebSocket isn't connected so users can queue/draft messages.
-            // Supporter chat: require connection to prevent accidental attempts without wallet/session.
-            disabled={
-              loading ||
-              !currentInput.value.trim() ||
-              (activeTab === 'supporter' && !connected) ||
-              (activeTab === 'supporter' && !isSupporter) ||
-              (!wallet.isConnected && activeTab === 'public' && cooldownTimer > 0)
-            }
-            className="send-button"
-          >
-            <Send size={16} />
-          </button>
-        </div>
+              value={currentInput.value}
+              onChange={(e) => currentInput.setValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault()
+                  currentInput.send()
+                }
+              }}
+              // Allow typing for public chat even when WebSocket isn't connected so users can draft messages.
+              // For supporter chat, keep input disabled when not connected to avoid confusing payment flows.
+              disabled={loading || (activeTab === 'supporter' && !connected) || (!wallet.isConnected && activeTab === 'public' && cooldownTimer > 0)}
+              className="message-input"
+            />
+            <button
+              onClick={currentInput.send}
+              // Public chat: enable send button even if WebSocket isn't connected so users can queue/draft messages.
+              // Supporter chat: require connection to prevent accidental attempts without wallet/session.
+              disabled={
+                loading ||
+                !currentInput.value.trim() ||
+                (activeTab === 'supporter' && !connected) ||
+                (activeTab === 'supporter' && !isSupporter) ||
+                (!wallet.isConnected && activeTab === 'public' && cooldownTimer > 0)
+              }
+              className="send-button"
+            >
+              <Send size={16} />
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )
