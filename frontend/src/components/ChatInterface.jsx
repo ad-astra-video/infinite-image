@@ -21,6 +21,8 @@ function ChatInterface() {
   const [cooldownTimer, setCooldownTimer] = useState(0)
   const [cooldownInterval, setCooldownInterval] = useState(null)
   const [showChatInput, setShowChatInput] = useState(true)
+  const [isMobileChatExpanded, setIsMobileChatExpanded] = useState(false)
+  const [unreadMessageCount, setUnreadMessageCount] = useState(0)
   const messagesEndRef = useRef(null)
   const messageInputRef = useRef(null)
   const prevRoomRef = useRef(null)
@@ -87,6 +89,11 @@ function ChatInterface() {
   const truncateAddress = (address) => {
     if (!address || address.length < 10) return address
     return `${address.slice(0, 6)}...${address.slice(-4)}`
+  }
+
+  // Helper function to detect mobile screens
+  const isMobile = () => {
+    return window.innerWidth <= 768
   }
 
   // Check supporter status via WebSocket
@@ -256,7 +263,12 @@ function ChatInterface() {
                   } catch (err) {
                     console.warn('Failed to dedupe public chat message:', err)
                   }
-                  return [...prev, data]
+                  const newMessages = [...prev, data]
+                  // Track unread messages for mobile
+                  if (isMobile() && !isMobileChatExpanded) {
+                    setUnreadMessageCount(prev => prev + 1)
+                  }
+                  return newMessages
                 })
               } else if (messageType === 'supporter') {
                 setSupporterMessages(prev => {
@@ -287,7 +299,12 @@ function ChatInterface() {
                   } catch (err) {
                     console.warn('Failed to dedupe supporter chat message:', err)
                   }
-                  return [...prev, data]
+                  const newMessages = [...prev, data]
+                  // Track unread messages for mobile
+                  if (isMobile() && !isMobileChatExpanded) {
+                    setUnreadMessageCount(prev => prev + 1)
+                  }
+                  return newMessages
                 })
               } else if (messageType === 'tip') {
                 // Handle tip messages - broadcast to public chat with gold styling
@@ -299,7 +316,12 @@ function ChatInterface() {
                       content: data.message || data.content,
                       messageType: 'tip'
                     }
-                    return [...prev, tipMessage]
+                    const newMessages = [...prev, tipMessage]
+                    // Track unread messages for mobile
+                    if (isMobile() && !isMobileChatExpanded) {
+                      setUnreadMessageCount(prev => prev + 1)
+                    }
+                    return newMessages
                   } catch (err) {
                     console.warn('Failed to process tip message:', err)
                     return [...prev, data]
@@ -734,54 +756,59 @@ function ChatInterface() {
   }, [])
 
   return (
-    <div className="chat-interface">
-      <div className="chat-header">
-        <div className="chat-header-left">
-          <span
-            className={`connection-indicator ${connected ? 'connected' : 'disconnected'}`}
-            title={connected ? 'Connected' : 'Disconnected'}
-            aria-hidden="true"
-          />
-          <button
-            className="chat-input-toggle"
-            onClick={() => setShowChatInput(!showChatInput)}
-            title={showChatInput ? 'Hide chat input' : 'Show chat input'}
-          >
-            {showChatInput ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-          </button>
-        </div>
-        <div className="chat-tabs">
-          {Object.entries(messageTypes).map(([key, type]) => {
-            const Icon = type.icon
-            const isSupporterTab = key === 'supporter'
-            const showGoldAnimation = isSupporterTab && tipSuccessAnimation
-            const showGoldPermanent = isSupporterTab && isSupporter && !tipSuccessAnimation
-            
-            // Disable supporter tab when wallet is not connected
-            const isDisabled = isSupporterTab && !wallet.isConnected
-            
-            return (
+    <>
+      {/* Desktop Chat Interface */}
+      <div className={`chat-interface ${isMobile() ? 'mobile-hidden' : ''}`}>
+        <div className="chat-header">
+          <div className="chat-header-left">
+            <span
+              className={`connection-indicator ${connected ? 'connected' : 'disconnected'}`}
+              title={connected ? 'Connected' : 'Disconnected'}
+              aria-hidden="true"
+            />
+            {/* Hide expand/hide button on larger screens */}
+            {!isMobile() && (
               <button
-                key={key}
-                className={`chat-tab ${activeTab === key ? 'active' : ''} ${showGoldAnimation ? 'gold-shine' : ''} ${showGoldPermanent ? 'gold-permanent' : ''} ${isDisabled ? 'disabled' : ''}`}
-                onClick={async () => {
-                  if (!isDisabled) {
-                    setActiveTab(key)
-                    setUserJoined(false) // Reset to rejoin new room
-                  }
-                }}
-                disabled={isDisabled}
+                className="chat-input-toggle"
+                onClick={() => setShowChatInput(!showChatInput)}
+                title={showChatInput ? 'Hide chat input' : 'Show chat input'}
               >
-                <div className="room-count-badge">
-                  {roomCounts[key] || 0}
-                </div>
-                <Icon size={16} className="chat-tab-icon" />
-                {isDisabled && <Lock size={12} className="lock-icon" />}
+                {showChatInput ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
               </button>
-            )
-          })}
+            )}
+          </div>
+          <div className="chat-tabs">
+            {Object.entries(messageTypes).map(([key, type]) => {
+              const Icon = type.icon
+              const isSupporterTab = key === 'supporter'
+              const showGoldAnimation = isSupporterTab && tipSuccessAnimation
+              const showGoldPermanent = isSupporterTab && isSupporter && !tipSuccessAnimation
+              
+              // Disable supporter tab when wallet is not connected
+              const isDisabled = isSupporterTab && !wallet.isConnected
+              
+              return (
+                <button
+                  key={key}
+                  className={`chat-tab ${activeTab === key ? 'active' : ''} ${showGoldAnimation ? 'gold-shine' : ''} ${showGoldPermanent ? 'gold-permanent' : ''} ${isDisabled ? 'disabled' : ''}`}
+                  onClick={async () => {
+                    if (!isDisabled) {
+                      setActiveTab(key)
+                      setUserJoined(false) // Reset to rejoin new room
+                    }
+                  }}
+                  disabled={isDisabled}
+                >
+                  <div className="room-count-badge">
+                    {roomCounts[key] || 0}
+                  </div>
+                  <Icon size={16} className="chat-tab-icon" />
+                  {isDisabled && <Lock size={12} className="lock-icon" />}
+                </button>
+              )
+            })}
+          </div>
         </div>
-      </div>
 
       <div className="messages-container">
         {activeTab === 'public' && publicMessages.map((message, index) => {
@@ -901,7 +928,195 @@ function ChatInterface() {
           </div>
         )}
       </div>
-    </div>
+      </div>
+      
+      {/* Mobile Chat Bar at Bottom */}
+      {isMobile() && (
+        <div className="mobile-chat-bar">
+          <button
+            className="mobile-chat-expand-btn"
+            onClick={() => {
+              setIsMobileChatExpanded(true)
+              setUnreadMessageCount(0) // Reset unread count when opening chat
+            }}
+            title="Open chat"
+          >
+            <MessageCircle size={20} />
+            <span className="mobile-chat-label">Chat</span>
+            {unreadMessageCount > 0 && (
+              <div className="mobile-chat-badge">
+                {unreadMessageCount}
+              </div>
+            )}
+          </button>
+        </div>
+      )}
+
+      {/* Mobile Chat Expanded Overlay */}
+      {isMobile() && isMobileChatExpanded && (
+        <div className="mobile-chat-overlay" onClick={() => setIsMobileChatExpanded(false)}>
+          <div className="mobile-chat-expanded" onClick={(e) => e.stopPropagation()}>
+            <div className="mobile-chat-header">
+              <div className="mobile-chat-header-left">
+                <span
+                  className={`connection-indicator ${connected ? 'connected' : 'disconnected'}`}
+                  title={connected ? 'Connected' : 'Disconnected'}
+                  aria-hidden="true"
+                />
+                <button
+                  className="mobile-chat-close-btn"
+                  onClick={() => setIsMobileChatExpanded(false)}
+                  title="Close chat"
+                >
+                  <ChevronDown size={16} />
+                </button>
+              </div>
+              <div className="mobile-chat-tabs">
+                {Object.entries(messageTypes).map(([key, type]) => {
+                  const Icon = type.icon
+                  const isSupporterTab = key === 'supporter'
+                  const showGoldAnimation = isSupporterTab && tipSuccessAnimation
+                  const showGoldPermanent = isSupporterTab && isSupporter && !tipSuccessAnimation
+                  
+                  // Disable supporter tab when wallet is not connected
+                  const isDisabled = isSupporterTab && !wallet.isConnected
+                  
+                  return (
+                    <button
+                      key={key}
+                      className={`mobile-chat-tab ${activeTab === key ? 'active' : ''} ${showGoldAnimation ? 'gold-shine' : ''} ${showGoldPermanent ? 'gold-permanent' : ''} ${isDisabled ? 'disabled' : ''}`}
+                      onClick={async () => {
+                        if (!isDisabled) {
+                          setActiveTab(key)
+                          setUserJoined(false)
+                        }
+                      }}
+                      disabled={isDisabled}
+                    >
+                      <div className="room-count-badge">
+                        {roomCounts[key] || 0}
+                      </div>
+                      <Icon size={16} className="chat-tab-icon" />
+                      {isDisabled && <Lock size={12} className="lock-icon" />}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            <div className="mobile-messages-container">
+              {activeTab === 'public' && publicMessages.map((message, index) => {
+                const mappedMessage = {
+                  ...message,
+                  sender: message.userAddress || message.sender,
+                  senderType: message.userType || message.senderType,
+                  content: message.message || message.content
+                }
+                
+                const isOwnMessage = wallet.address && mappedMessage.sender === (wallet.address || '').toLowerCase()
+                const isTipMessage = mappedMessage.messageType === 'tip'
+                
+                return (
+                  <div key={mappedMessage.id || index} className={`message-wrapper ${isOwnMessage ? 'own' : ''} ${isTipMessage ? 'tip-message' : ''}`}>
+                    <div className="message-timestamp">
+                      {new Date(mappedMessage.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </div>
+                    <div className={`message ${mappedMessage.messageType || 'public'} ${isOwnMessage ? 'own' : ''} ${isTipMessage ? 'tip' : ''}`}>
+                      <div className="message-header">
+                        <span className="sender">
+                          {(mappedMessage.senderType === 'supporter' || isTipMessage) && <Crown size={14} />}
+                          {truncateAddress(mappedMessage.sender)}
+                          {isOwnMessage && <span className="you-badge">You</span>}
+                        </span>
+                      </div>
+                      <div className="message-content">
+                        {mappedMessage.content}
+                        {isTipMessage && <span className="tip-announcement">🎉 Tip received!</span>}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+              {activeTab === 'supporter' && supporterMessages.map((message, index) => {
+                const mappedMessage = {
+                  ...message,
+                  sender: message.userAddress || message.sender,
+                  senderType: message.userType || message.senderType,
+                  content: message.message || message.content
+                }
+                
+                const isOwnMessage = wallet.address && mappedMessage.sender === (wallet.address || '').toLowerCase()
+                return (
+                  <div key={mappedMessage.id || index} className={`message-wrapper ${isOwnMessage ? 'own' : ''}`}>
+                    <div className="message-timestamp">
+                      {new Date(mappedMessage.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </div>
+                    <div className={`message ${mappedMessage.messageType || 'supporter'} ${isOwnMessage ? 'own' : ''}`}>
+                      <div className="message-header">
+                        <span className="sender">
+                          {mappedMessage.senderType === 'supporter' && <Crown size={14} />}
+                          {truncateAddress(mappedMessage.sender)}
+                          {isOwnMessage && <span className="you-badge">You</span>}
+                        </span>
+                      </div>
+                      <div className="message-content">
+                        {mappedMessage.content}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+              <div ref={messagesEndRef} />
+            </div>
+
+            <div className="mobile-chat-inputs">
+              {!wallet.isConnected && activeTab === 'public' && cooldownTimer > 0 && (
+                <div className="cooldown-timer">
+                  <div className="cooldown-message">
+                    <Clock size={16} className="cooldown-icon" />
+                    <span>Rate limit: Please wait {cooldownTimer} seconds before sending another message</span>
+                  </div>
+                </div>
+              )}
+              
+              <div className="input-group">
+                <textarea
+                  ref={messageInputRef}
+                  rows={2}
+                  placeholder={
+                    activeTab === 'supporter' ? "Enter supporter chat message..." :
+                    "Enter public message..."
+                  }
+                  value={currentInput.value}
+                  onChange={(e) => currentInput.setValue(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault()
+                      currentInput.send()
+                    }
+                  }}
+                  disabled={loading || (activeTab === 'supporter' && !connected) || (!wallet.isConnected && activeTab === 'public' && cooldownTimer > 0)}
+                  className="message-input"
+                />
+                <button
+                  onClick={currentInput.send}
+                  disabled={
+                    loading ||
+                    !currentInput.value.trim() ||
+                    (activeTab === 'supporter' && !connected) ||
+                    (activeTab === 'supporter' && !isSupporter) ||
+                    (!wallet.isConnected && activeTab === 'public' && cooldownTimer > 0)
+                  }
+                  className="send-button"
+                >
+                  <Send size={16} />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   )
 }
 
