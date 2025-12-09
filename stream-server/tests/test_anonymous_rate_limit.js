@@ -32,7 +32,7 @@ async function test() {
         type: 'chat_message',
         room: 'public',
         message: 'First message from anonymous user',
-        signature: '', // Blank signature for anonymous users
+        signature: 'none', // Signature value for anonymous users
         counter: 1
       }));
     } else if (message.type === 'chat_message') {
@@ -44,7 +44,7 @@ async function test() {
         type: 'chat_message',
         room: 'public',
         message: 'Second message immediately - should be blocked',
-        signature: '', // Blank signature for anonymous users
+        signature: 'none', // Signature value for anonymous users
         counter: 2
       }));
     } else if (message.type === 'error') {
@@ -61,7 +61,7 @@ async function test() {
             type: 'chat_message',
             room: 'public',
             message: 'Message after rate limit expired',
-            signature: '', // Blank signature for anonymous users
+            signature: 'none', // Signature value for anonymous users
             counter: 3
           }));
         }, 65000); // 65 seconds to be safe

@@ -390,7 +390,7 @@ class ChatRouter {
     
     // Updated to handle anonymous users with counter and blank signature
     const isAnonymousUser = ws.userData.address === 'anon';
-    if (!message || !signature || (!isAnonymousUser && !counter)) {
+    if (!message || (!isAnonymousUser && !signature) || (!isAnonymousUser && !counter)) {
       this.sendError(ws, 'Missing required message fields');
       return;
     }

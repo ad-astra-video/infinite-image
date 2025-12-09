@@ -109,10 +109,7 @@ class ChatMessageValidator {
           this.siweHandler.updateDelegationCounter(userAddress, counter);
         }
       } else if (userAddress === 'anon') {
-        this.logger.info('👤 Anonymous user - counter always zero, no counter tracking needed:', {
-          userAddress: userAddress,
-          counter: counter
-        })
+        //no counter check needed for anon, they are rate limited
       }
 
       return {

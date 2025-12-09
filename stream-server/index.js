@@ -117,7 +117,7 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      connectSrc: ["'self'", "https://mainnet.base.org", "https://explorer-api.walletconnect.com"],
+      connectSrc: ["'self'", "https://mainnet.base.org", "https://explorer-api.walletconnect.com", "wss://www.walletlink.org/rpc"],
       scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
       styleSrc: ["'self'", "'unsafe-inline'"],
       imgSrc: ["'self'", "data:", "https:"],

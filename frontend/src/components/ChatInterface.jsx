@@ -534,15 +534,8 @@ function ChatInterface() {
   const sendPublicMessage = async () => {
     if (!newMessage.trim() || !ws) return
 
-    // Check rate limiting for non-wallet users
-    const now = Date.now()
-    const timeSinceLastMessage = now - (lastMessageTime || now)
-
-    if (!wallet.isConnected && timeSinceLastMessage < 60000) { // 1 minute = 60000ms
-      const remainingTime = Math.ceil((60000 - timeSinceLastMessage) / 1000)
-      startCooldownTimer(remainingTime)
-      return
-    }
+    // Removed client-side timeout check - let server handle all timeout logic for anonymous users
+    // Rate limiting is now handled entirely by the server via rate_limit response
 
     setLoading(true)
     try {

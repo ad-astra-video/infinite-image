@@ -4,11 +4,12 @@ import ReactDOM from 'react-dom/client'
 import { WagmiConfig, http, createConfig } from 'wagmi'
 import { base } from 'wagmi/chains'
 import { RainbowKitProvider, connectorsForWallets } from '@rainbow-me/rainbowkit'
-import { 
+import {
   metaMaskWallet,
   coinbaseWallet,
   injectedWallet,
 } from '@rainbow-me/rainbowkit/wallets'
+import { metaMaskDeeplinkWallet } from './metaMaskDeeplinkWallet'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 import App from './App'
@@ -23,11 +24,19 @@ const connectors = connectorsForWallets(
   [
     {
       groupName: 'Recommended',
-      wallets: [
-        metaMaskWallet,
-        coinbaseWallet,
-        injectedWallet,
-      ],
+      wallets: (() => {
+        const isMobile = typeof window !== 'undefined' && /Mobi|Android|iPhone/.test(navigator.userAgent);
+        const baseWallets = [
+          metaMaskWallet,
+          coinbaseWallet,
+        ];
+        if (isMobile) {
+          baseWallets.push(metaMaskDeeplinkWallet);
+        } else {
+          baseWallets.push(injectedWallet);
+        }
+        return baseWallets;
+      })(),
     },
   ],
   {
