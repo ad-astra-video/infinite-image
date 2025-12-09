@@ -1,5 +1,7 @@
 FROM node:22-alpine AS builder
 
+ARG VITE_API_BASE
+ENV VITE_API_BASE=$VITE_API_BASE
 # set workdir
 WORKDIR /app
 
