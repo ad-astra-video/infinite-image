@@ -55,7 +55,7 @@ const sessionMiddleware = async (req, res, next) => {
     
     if (req.session.fingerprint.ipHash !== currentIPHash || 
         req.session.fingerprint.uaHash !== currentUAHash) {
-      console.warn('Session fingerprint mismatch - potential security issue');
+      console.warn(`Session fingerprint mismatch - potential security issue iphash_changed=${req.session.fingerprint.ipHash !== currentIPHash} uaHash_changed=${req.session.fingerprint.uaHash !== currentUAHash}`);
       // Don't immediately invalidate, but log for monitoring
     }
     
