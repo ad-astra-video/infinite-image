@@ -625,18 +625,27 @@
 /* Responsive design */
 @media (max-width: 768px) {
   .top-wallet-toolbar {
-    position: relative;
+    position: fixed;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
     width: 90vw;
     min-width: auto;
     max-width: none;
     padding: 6px 12px;
     height: 40px;
-    margin: 0 auto 8px auto;
+    margin: 0 auto;
+    z-index: 1000;
+    border-radius: 0 0 12px 12px;
   }
 
   /* ensure chat references updated toolbar height on smaller screens */
   .player-column {
     --toolbar-height: 40px;
+  }
+  
+  .main-content-container {
+    margin-top: 60px;
   }
   
   .video-controls-overlay {
@@ -841,6 +850,8 @@
   min-height: 0; /* allow flex child to shrink properly inside the container */
   padding: 12px;
   overflow-y: auto;
+  overflow-x: hidden; /* prevent horizontal scrolling */
+  contain: layout; /* isolate layout to prevent affecting parent scrolling */
 }
 
 .no-messages {
@@ -1254,11 +1265,35 @@
   
   .chat-interface {
     position: relative;
-    width: 100%;
+    width: calc(100% - 10vw);
     max-width: none;
     height: 350px;
     margin: 12px;
+    margin-left: auto;
+    margin-right: auto;
     flex-direction: column;
+    display: flex;
+  }
+  
+  .chat-content {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+  }
+  
+  .messages-container {
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: 200px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    contain: layout;
+  }
+  
+  .chat-inputs {
+    flex-shrink: 0;
+    padding: 8px;
   }
   
   .chat-tabs {
@@ -1269,25 +1304,63 @@
     padding: 4px 8px;
     font-size: 11px;
   }
-  
-  .messages-container {
-    max-height: 150px;
-  }
 }
 
 @media (max-width: 480px) {
   .top-wallet-toolbar {
-    position: relative;
+    position: fixed;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
     width: 95vw;
     min-width: auto;
     max-width: none;
     padding: 6px 10px;
     height: 44px;
-    margin: 0 auto 8px auto;
+    margin: 0 auto;
+    z-index: 1000;
+    border-radius: 0 0 12px 12px;
   }
 
   .player-column {
     --toolbar-height: 44px;
+  }
+  
+  .main-content-container {
+    margin-top: 64px;
+  }
+  
+  .chat-interface {
+    position: relative;
+    width: calc(100% - 5vw);
+    max-width: none;
+    height: 320px;
+    margin: 6px;
+    margin-left: auto;
+    margin-right: auto;
+    flex-direction: column;
+    display: flex;
+  }
+  
+  .chat-content {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+  }
+  
+  .messages-container {
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: 170px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    contain: layout;
+  }
+  
+  .chat-inputs {
+    flex-shrink: 0;
+    padding: 6px;
   }
   
   .wallet-connect-layout {

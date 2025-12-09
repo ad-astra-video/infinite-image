@@ -427,7 +427,15 @@ function ChatInterface() {
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    const messagesContainer = document.querySelector('.messages-container')
+    if (messagesContainer) {
+      // Only auto-scroll if user is near the bottom (within 50px) or it's a new message
+      const isNearBottom = messagesContainer.scrollHeight - messagesContainer.scrollTop - messagesContainer.clientHeight < 50
+      
+      if (isNearBottom) {
+        messagesContainer.scrollTop = messagesContainer.scrollHeight
+      }
+    }
   }, [publicMessages, supporterMessages])
 
   // Join chat room when tab changes
@@ -450,7 +458,6 @@ function ChatInterface() {
       }
 
       console.log('Joining chat:', {
-        walletAddress: wallet.address,
         siweValidated: wallet.siweValidated,
         isConnected: wallet.isConnected,
         isSupporter: isSupporter,
