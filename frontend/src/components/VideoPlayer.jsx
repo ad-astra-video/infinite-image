@@ -5,7 +5,15 @@ import {
   Settings,
   ChevronDown,
   ChevronUp,
-  Loader2
+  Loader2,
+  Play,
+  Pause,
+  Volume2,
+  VolumeX,
+  Maximize,
+  Minimize,
+  SkipBack,
+  SkipForward
 } from 'lucide-react'
 import { useWallet } from './WalletConnect'
 import { API_BASE } from '../utils/apiConfig'
@@ -36,6 +44,16 @@ function VideoPlayer({
   const [tipMessage, setTipMessage] = useState('')
   const [loading, setLoading] = useState(false)
 
+  // YouTube-style video player state
+  const [isPlaying, setIsPlaying] = useState(false)
+  const [currentTime, setCurrentTime] = useState(0)
+  const [duration, setDuration] = useState(0)
+  const [volume, setVolume] = useState(1)
+  const [isMuted, setIsMuted] = useState(false)
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  const [showControls, setShowControls] = useState(true)
+  const [controlsTimeout, setControlsTimeout] = useState(null)
+
   const videoRef = useRef(null)
 
   // Fetch stream URL on component mount
@@ -55,6 +73,37 @@ function VideoPlayer({
     }
   }, [])
 
+  // Add video event listeners
+  useEffect(() => {
+    const video = videoRef.current
+    if (video) {
+      video.addEventListener('timeupdate', handleTimeUpdate)
+      video.addEventListener('loadedmetadata', handleLoadedMetadata)
+      video.addEventListener('play', () => setIsPlaying(true))
+      video.addEventListener('pause', () => setIsPlaying(false))
+      
+      return () => {
+        video.removeEventListener('timeupdate', handleTimeUpdate)
+        video.removeEventListener('loadedmetadata', handleLoadedMetadata)
+        video.removeEventListener('play', () => setIsPlaying(true))
+        video.removeEventListener('pause', () => setIsPlaying(false))
+      }
+    }
+  }, [streamUrl])
+
+  // Add fullscreen event listeners
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement)
+    }
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange)
+    
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange)
+    }
+  }, [])
+
   const fetchStreamUrl = async () => {
     try {
       setStreamStatus('not_running')
@@ -62,6 +111,102 @@ function VideoPlayer({
       console.error('Failed to fetch stream URL:', error)
       setStreamStatus('error')
     }
+  }
+
+  // YouTube-style video control functions
+  const togglePlayPause = () => {
+    if (videoRef.current) {
+      if (isPlaying) {
+        videoRef.current.pause()
+      } else {
+        videoRef.current.play()
+      }
+      setIsPlaying(!isPlaying)
+    }
+  }
+
+  const handleTimeUpdate = () => {
+    if (videoRef.current) {
+      setCurrentTime(videoRef.current.currentTime)
+    }
+  }
+
+  const handleLoadedMetadata = () => {
+    if (videoRef.current) {
+      setDuration(videoRef.current.duration)
+    }
+  }
+
+  const handleProgressClick = (e) => {
+    if (videoRef.current && duration > 0) {
+      const rect = e.target.getBoundingClientRect()
+      const clickX = e.clientX - rect.left
+      const progressWidth = rect.width
+      const newTime = (clickX / progressWidth) * duration
+      videoRef.current.currentTime = newTime
+      setCurrentTime(newTime)
+    }
+  }
+
+  const toggleMute = () => {
+    if (videoRef.current) {
+      videoRef.current.muted = !isMuted
+      setIsMuted(!isMuted)
+    }
+  }
+
+  const handleVolumeChange = (e) => {
+    const newVolume = parseFloat(e.target.value)
+    setVolume(newVolume)
+    if (videoRef.current) {
+      videoRef.current.volume = newVolume
+      if (newVolume === 0) {
+        setIsMuted(true)
+      } else if (isMuted) {
+        setIsMuted(false)
+      }
+    }
+  }
+
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      videoRef.current.requestFullscreen().then(() => {
+        setIsFullscreen(true)
+      }).catch(() => {
+        // Fallback for browsers that don't support fullscreen
+      })
+    } else {
+      document.exitFullscreen().then(() => {
+        setIsFullscreen(false)
+      }).catch(() => {
+        // Fallback
+      })
+    }
+  }
+
+  const skipTime = (seconds) => {
+    if (videoRef.current) {
+      const newTime = Math.max(0, Math.min(duration, currentTime + seconds))
+      videoRef.current.currentTime = newTime
+      setCurrentTime(newTime)
+    }
+  }
+
+  const handleMouseMove = () => {
+    setShowControls(true)
+    if (controlsTimeout) {
+      clearTimeout(controlsTimeout)
+    }
+    const timeout = setTimeout(() => {
+      setShowControls(false)
+    }, 3000)
+    setControlsTimeout(timeout)
+  }
+
+  const formatTime = (time) => {
+    const minutes = Math.floor(time / 60)
+    const seconds = Math.floor(time % 60)
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`
   }
 
   const handleTip = async (amount, message = '') => {
@@ -143,41 +288,124 @@ function VideoPlayer({
     <div className="video-container">
       <div className="video-wrapper">
         {streamStatus === 'loading' && (
-          <div className="loading-state glass">
-            <Loader2 className="animate-spin" size={32} />
-            <p>Connecting to stream...</p>
+          <div className="youtube-loading-state">
+            <div className="youtube-loading-spinner">
+              <Loader2 className="animate-spin" size={48} />
+            </div>
+            <p className="youtube-loading-text">Connecting to stream...</p>
           </div>
         )}
         
         {streamStatus === 'not_running' && (
-          <div className="no-stream-state glass">
-            <Video size={48} />
-            <p>Stream not active</p>
-            <p className="subtitle">Director controls will start the stream</p>
+          <div className="youtube-no-stream-state">
+            <Video size={64} className="youtube-no-stream-icon" />
+            <p className="youtube-no-stream-title">Stream not active</p>
+            <p className="youtube-no-stream-subtitle">Director controls will start the stream</p>
           </div>
         )}
         
         {streamStatus === 'error' && (
-          <div className="error-state glass">
-            <p>Connection error</p>
-            <button onClick={() => fetchStreamUrl()} className="btn btn-primary">
-              Retry
-            </button>
+          <div className="youtube-error-state">
+            <div className="youtube-error-content">
+              <p className="youtube-error-title">Connection error</p>
+              <button onClick={() => fetchStreamUrl()} className="youtube-retry-btn">
+                Retry
+              </button>
+            </div>
           </div>
         )}
         
         {streamUrl && (
-          <video
-            ref={videoRef}
-            className="stream-video"
-            autoPlay
-            muted
-            controls
-            playsInline
+          <div
+            className="youtube-player-container"
+            onMouseMove={handleMouseMove}
+            onMouseLeave={() => setShowControls(false)}
           >
-            <source src={streamUrl} type="video/mp4" />
-            Your browser does not support the video tag.
-          </video>
+            <video
+              ref={videoRef}
+              className="stream-video"
+              autoPlay
+              muted={isMuted}
+              playsInline
+              onClick={togglePlayPause}
+            >
+              <source src={streamUrl} type="video/mp4" />
+              Your browser does not support the video tag.
+            </video>
+            
+            {/* YouTube-style controls overlay */}
+            <div className={`youtube-controls-overlay ${showControls ? 'visible' : 'hidden'}`}>
+              {/* Play/Pause button */}
+              <div className="youtube-control-center">
+                <button
+                  className="youtube-play-pause-btn"
+                  onClick={togglePlayPause}
+                >
+                  {isPlaying ? <Pause size={48} /> : <Play size={48} />}
+                </button>
+              </div>
+              
+              {/* Bottom controls */}
+              <div className="youtube-bottom-controls">
+                {/* Progress bar */}
+                <div className="youtube-progress-container">
+                  <div
+                    className="youtube-progress-bar"
+                    onClick={handleProgressClick}
+                  >
+                    <div
+                      className="youtube-progress-fill"
+                      style={{ width: `${duration > 0 ? (currentTime / duration) * 100 : 0}%` }}
+                    />
+                  </div>
+                </div>
+                
+                {/* Control buttons and time */}
+                <div className="youtube-controls-row">
+                  {/* Left side controls */}
+                  <div className="youtube-controls-left">
+                    <button className="youtube-control-btn" onClick={() => skipTime(-10)}>
+                      <SkipBack size={20} />
+                    </button>
+                    <button className="youtube-control-btn" onClick={togglePlayPause}>
+                      {isPlaying ? <Pause size={20} /> : <Play size={20} />}
+                    </button>
+                    <button className="youtube-control-btn" onClick={() => skipTime(10)}>
+                      <SkipForward size={20} />
+                    </button>
+                    
+                    {/* Volume control */}
+                    <div className="youtube-volume-container">
+                      <button className="youtube-control-btn" onClick={toggleMute}>
+                        {isMuted || volume === 0 ? <VolumeX size={20} /> : <Volume2 size={20} />}
+                      </button>
+                      <input
+                        type="range"
+                        min="0"
+                        max="1"
+                        step="0.1"
+                        value={isMuted ? 0 : volume}
+                        onChange={handleVolumeChange}
+                        className="youtube-volume-slider"
+                      />
+                    </div>
+                    
+                    {/* Time display */}
+                    <div className="youtube-time-display">
+                      {formatTime(currentTime)} / {formatTime(duration)}
+                    </div>
+                  </div>
+                  
+                  {/* Right side controls */}
+                  <div className="youtube-controls-right">
+                    <button className="youtube-control-btn" onClick={toggleFullscreen}>
+                      {isFullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         )}
       </div>
 
