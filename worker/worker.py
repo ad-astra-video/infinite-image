@@ -9,6 +9,7 @@ import io
 import logging
 import os
 import sys
+import threading
 import time
 from dataclasses import dataclass, fields
 from pathlib import Path
@@ -69,6 +70,13 @@ class InfiniteFlux2StreamHandlers:
         # Runner for direct inference
         self.pipe = None
         self.runner_ready = False
+        
+        # Inference locking mechanism with callback-based interruption
+        self.inference_lock = asyncio.Lock()
+        self.inference_in_progress = False
+        self.inference_count = 0
+        self.interrupt_requested = False
+        self.inference_completed_event = asyncio.Event()
         
         # Generation completion tracking
         self.frame_queue = asyncio.Queue()
@@ -170,6 +178,20 @@ class InfiniteFlux2StreamHandlers:
         """Called when stream stops - cleanup background tasks."""
         logger.info("Stream stopped, cleaning up background tasks")
         
+        # Set interrupt flag to stop any running inference
+        self.interrupt_requested = True
+        logger.info("Set interrupt flag for running inference")
+        
+        # Wait for inference to complete if one is in progress
+        if self.inference_in_progress:
+            logger.info("Waiting for inference to complete...")
+            # Wait up to 10 seconds for inference to finish
+            try:
+                await asyncio.wait_for(self.inference_completed_event.wait(), timeout=10.0)
+                logger.info("Inference completed successfully")
+            except asyncio.TimeoutError:
+                logger.warning("Inference did not complete within 10 seconds, proceeding anyway")
+
         # Empty the frame_queue on stream stop
         lock = getattr(self, "frame_queue_lock", None)
         if lock is None:
@@ -227,14 +249,19 @@ class InfiniteFlux2StreamHandlers:
             try:
                 gen_start = time.perf_counter()
                 
-                # Move PyTorch inference to background thread to avoid blocking asyncio loop
-                image = await asyncio.to_thread(self._run_inference)
+                # Reset interrupt flag for new inference
+                self.interrupt_requested = False
                 
-                gen_end = time.perf_counter()
-                logger.info(f"Image generation took {gen_end - gen_start:.2f} seconds")
+                # Acquire inference lock to ensure only one inference runs at a time
+                async with self.inference_lock:
+                    # Move PyTorch inference to background thread to avoid blocking asyncio loop
+                    image = await asyncio.to_thread(self._run_inference_with_callback)
+                    
+                    gen_end = time.perf_counter()
+                    logger.info(f"Image generation took {gen_end - gen_start:.2f} seconds")
 
-                # Update current frame in a thread-safe manner
-                self.current_frame = pil_to_bhwc(image)
+                    # Update current frame in a thread-safe manner
+                    self.current_frame = pil_to_bhwc(image)
 
             except Exception as e:
                 logger.error(f"Error in image generation: {e}", exc_info=True)
@@ -242,20 +269,96 @@ class InfiniteFlux2StreamHandlers:
             
             await asyncio.sleep(0.1)
 
-    def _run_inference(self) -> Image.Image:
+    def _create_interrupt_callback(self):
         """
-        Synchronous function that runs PyTorch inference in a background thread.
+        Create a callback function that can interrupt inference during generation.
+        This callback is called at each step of the diffusion process.
+        """
+        def interrupt_callback(pipeline, i, t, callback_kwargs):
+            # Check if interrupt was requested
+            if self.interrupt_requested:
+                logger.info(f"Interrupting inference at step {i}/{t}")
+                # Set an interrupt flag on the pipeline
+                pipeline._interrupt = True
+            return callback_kwargs
+        
+        return interrupt_callback
+    
+    def _run_inference_with_callback(self) -> Image.Image:
+        """
+        Synchronous function that runs PyTorch inference with callback-based interruption.
         This contains the actual model inference that was blocking the event loop.
         """
-        return self.pipe(
-            generator=torch.Generator(device="cuda").manual_seed(self.cfg.seed),
-            image=self.cfg.processed_reference_images,
-            height=self.cfg.height,
-            width=self.cfg.width,
-            prompt=self.cfg.prompt,
-            guidance_scale=self.cfg.guidance_scale,
-            num_inference_steps=self.cfg.steps
-        ).images[0]
+        # Track inference state
+        self.inference_in_progress = True
+        self.inference_count += 1
+        logger.info(f"Starting inference #{self.inference_count} - in_progress: {self.inference_in_progress}")
+        
+        # Clear completion event for new inference
+        self.inference_completed_event.clear()
+        
+        try:
+            # Create interrupt callback
+            interrupt_callback = self._create_interrupt_callback()
+            
+            # Run inference with callback for interruption
+            result = self.pipe(
+                generator=torch.Generator(device="cuda").manual_seed(self.cfg.seed),
+                image=self.cfg.processed_reference_images,
+                height=self.cfg.height,
+                width=self.cfg.width,
+                prompt=self.cfg.prompt,
+                guidance_scale=self.cfg.guidance_scale,
+                num_inference_steps=self.cfg.steps,
+                callback_on_step_end=interrupt_callback
+            ).images[0]
+            
+            logger.info(f"Completed inference #{self.inference_count}")
+            return result
+        except Exception as e:
+            if "interrupt" in str(e).lower() or hasattr(self.pipe, '_interrupt'):
+                logger.info(f"Inference #{self.inference_count} was interrupted")
+                raise RuntimeError("Inference was interrupted")
+            else:
+                logger.error(f"Inference #{self.inference_count} failed with error: {e}")
+                raise
+        finally:
+            # Ensure inference state is reset and signal completion
+            self.inference_in_progress = False
+            self.inference_completed_event.set()
+            logger.info(f"Inference #{self.inference_count} completed - in_progress: {self.inference_in_progress}")
+    
+    def _run_inference(self) -> Image.Image:
+        """
+        Legacy synchronous function that runs PyTorch inference in a background thread.
+        This contains the actual model inference that was blocking the event loop.
+        """
+        # Track inference state
+        self.inference_in_progress = True
+        self.inference_count += 1
+        logger.info(f"Starting inference #{self.inference_count} - in_progress: {self.inference_in_progress}")
+        
+        # Clear completion event for new inference
+        self.inference_completed_event.clear()
+        
+        try:
+            result = self.pipe(
+                generator=torch.Generator(device="cuda").manual_seed(self.cfg.seed),
+                image=self.cfg.processed_reference_images,
+                height=self.cfg.height,
+                width=self.cfg.width,
+                prompt=self.cfg.prompt,
+                guidance_scale=self.cfg.guidance_scale,
+                num_inference_steps=self.cfg.steps
+            ).images[0]
+            
+            logger.info(f"Completed inference #{self.inference_count}")
+            return result
+        finally:
+            # Ensure inference state is reset and signal completion
+            self.inference_in_progress = False
+            self.inference_completed_event.set()
+            logger.info(f"Inference #{self.inference_count} completed - in_progress: {self.inference_in_progress}")
 
     async def _send_frames(self):
         """
@@ -274,7 +377,7 @@ class InfiniteFlux2StreamHandlers:
 
                 if not self.processor is None:
                     await self.processor.send_input_frame(video_frame)
-                    #logger.info(f"Sent {video_frame.__class__.__name__} frame with timestamp {video_frame.timestamp}")
+                    logger.info(f"Sent {video_frame.__class__.__name__} frame with timestamp {video_frame.timestamp}")
                     if self.no_audio_in_stream:
                         #send silent audio frame to keep audio/video sync
                         await self.processor.send_input_frame(
