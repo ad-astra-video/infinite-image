@@ -1,14 +1,13 @@
 {
 	"header":
 	{
-		"capability": "infinite-flux-2-dev",
+		"capability": "infinite-image",
 		"timeout_seconds": 120,
-		"request": {
-		},
+		"request": {},
 		"parameters": {
 			"enable_video_ingress": false,
 			"enable_video_egress": true,
-			"enable_data_output": true
+			"enable_data_output": false
 		}
 	},
 	"stream_request":
