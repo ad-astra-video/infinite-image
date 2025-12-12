@@ -4,16 +4,36 @@ import SettingsModal from './components/SettingsModal'
 import WalletConnect from './components/WalletConnect'
 import ChatInterface from './components/ChatInterface'
 import VideoPlayer from './components/VideoPlayer'
+import AdminPanel from './components/AdminPanel'
 import { useWallet } from './components/WalletConnect'
 
 function App() {
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [adminPanelOpen, setAdminPanelOpen] = useState(false)
+  const [streamData, setStreamData] = useState(null)
   const [streamSettings, setStreamSettings] = useState({
     prompt: 'A serene landscape with mountains and a river at sunset, digital art',
     steps: 28,
     guidance_scale: 4.0,
     reference_images: []
   })
+
+  // Listen for admin panel toggle events
+  React.useEffect(() => {
+    const handleAdminPanelToggle = () => {
+      setAdminPanelOpen(prev => {
+        const newState = !prev;
+        // Close settings when admin panel opens
+        if (newState) {
+          setSettingsOpen(false);
+        }
+        return newState;
+      });
+    };
+
+    window.addEventListener('toggleAdminPanel', handleAdminPanelToggle);
+    return () => window.removeEventListener('toggleAdminPanel', handleAdminPanelToggle);
+  }, []);
 
   const handleImageUpload = (e) => {
     const files = Array.from(e.target.files)
@@ -39,6 +59,10 @@ function App() {
     setStreamSettings(updater)
   }
 
+  const handleStreamUpdate = (data) => {
+    setStreamData(data)
+  }
+
   const handleApplySettings = () => {
     setSettingsOpen(false)
   }
@@ -59,6 +83,8 @@ function App() {
           <VideoPlayer
             onOpenSettings={() => setSettingsOpen(true)}
             streamSettings={streamSettings}
+            streamData={streamData}
+            onStreamUpdate={handleStreamUpdate}
           />
         </div> {/* end .player-column */}
 
@@ -74,6 +100,19 @@ function App() {
         onSettingsChange={handleSettingsChange}
         onImageUpload={handleImageUpload}
         onApply={handleApplySettings}
+      />
+
+      {/* Admin Panel - rendered at App level to sit above all elements */}
+      <AdminPanel
+        isOpen={adminPanelOpen}
+        onStreamUpdate={handleStreamUpdate}
+        onAdminButtonClick={(show) => {
+          setAdminPanelOpen(show);
+          // Close settings when admin panel opens
+          if (show) {
+            setSettingsOpen(false);
+          }
+        }}
       />
     </div>
   )

@@ -13,17 +13,70 @@ import {
   Maximize,
   Minimize,
   SkipBack,
-  SkipForward
+  SkipForward,
+  Settings2
 } from 'lucide-react'
 import { useWallet } from './WalletConnect'
 import { API_BASE } from '../utils/apiConfig'
+import AdminPanel from './AdminPanel'
+
+// Check if user is admin before showing admin button
+function useAdminCheck(address, isConnected, enhancedAuth) {
+  const [isAdmin, setIsAdmin] = useState(false);
+  
+  useEffect(() => {
+    const checkAdminStatus = async () => {
+      console.log('[VideoPlayer] Checking admin status for button...', {
+        isConnected,
+        address,
+        enhancedAuth,
+        authenticated: enhancedAuth?.authenticated
+      });
+      
+      // Only proceed if wallet is connected and authentication is verified
+      if (!isConnected || !address || !enhancedAuth?.authenticated) {
+        console.log('[VideoPlayer] Skipping admin check for button - missing requirements');
+        setIsAdmin(false);
+        return;
+      }
+      
+      console.log('[VideoPlayer] Making admin check request for button, address:', address);
+      
+      try {
+        const response = await fetch(`${API_BASE}/api/stream/admin/check`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ address })
+        });
+        
+        console.log('[VideoPlayer] Admin check response status:', response.status);
+        
+        const data = await response.json();
+        console.log('[VideoPlayer] Admin check response data:', data);
+        
+        setIsAdmin(data.isAdmin);
+        console.log('[VideoPlayer] Set isAdmin for button to:', data.isAdmin);
+      } catch (error) {
+        console.error('[VideoPlayer] Failed to check admin status for button:', error);
+        setIsAdmin(false);
+      }
+    };
+    
+    checkAdminStatus();
+  }, [address, isConnected, enhancedAuth?.authenticated]);
+  
+  return isAdmin;
+}
 
 function VideoPlayer({
   onOpenSettings,
-  streamSettings
+  streamSettings,
+  streamData, // Enhanced with iframe_html support
+  onStreamUpdate
 }) {
   const wallet = useWallet()
-
+  const isAdmin = useAdminCheck(wallet.address, wallet.isConnected, wallet.enhancedAuth)
+ 
   function buildXPaymentHeader(authorization, signature, x402Version, x402scheme, network) {
     const payload = JSON.stringify({
       "x402Version": x402Version,
@@ -40,6 +93,7 @@ function VideoPlayer({
 
   const [streamUrl, setStreamUrl] = useState(null)
   const [streamStatus, setStreamStatus] = useState('loading')
+  const [playerType, setPlayerType] = useState('webrtc')
   const [tipJarOpen, setTipJarOpen] = useState(false)
   const [tipMessage, setTipMessage] = useState('')
   const [loading, setLoading] = useState(false)
@@ -55,6 +109,15 @@ function VideoPlayer({
   const [controlsTimeout, setControlsTimeout] = useState(null)
 
   const videoRef = useRef(null)
+
+  // Determine player type based on stream data
+  useEffect(() => {
+    if (streamData?.iframe_html && streamData.iframe_html.trim()) {
+      setPlayerType('iframe');
+    } else {
+      setPlayerType('webrtc');
+    }
+  }, [streamData]);
 
   // Fetch stream URL on component mount
   useEffect(() => {
@@ -106,7 +169,12 @@ function VideoPlayer({
 
   const fetchStreamUrl = async () => {
     try {
-      setStreamStatus('not_running')
+      if (streamData?.whep_url) {
+        setStreamUrl(streamData.whep_url);
+        setStreamStatus('running');
+      } else {
+        setStreamStatus('not_running');
+      }
     } catch (error) {
       console.error('Failed to fetch stream URL:', error)
       setStreamStatus('error')
@@ -315,7 +383,16 @@ function VideoPlayer({
           </div>
         )}
         
-        {streamUrl && (
+        {streamData && playerType === 'iframe' && streamData.iframe_html && (
+          <div className="iframe-player-container">
+            <div
+              dangerouslySetInnerHTML={{ __html: streamData.iframe_html }}
+              className="iframe-player"
+            />
+          </div>
+        )}
+        
+        {streamData && playerType === 'webrtc' && streamUrl && (
           <div
             className="youtube-player-container"
             onMouseMove={handleMouseMove}
@@ -511,6 +588,24 @@ function VideoPlayer({
             </div>
           )}
         </div>
+
+        {/* Admin Panel Button - only show for verified admin users */}
+        {isAdmin && (
+          <div className="control-group">
+            <button
+              className="control-btn glass"
+              onClick={() => {
+                // Trigger admin panel modal through custom event
+                window.dispatchEvent(new CustomEvent('toggleAdminPanel'));
+              }}
+              disabled={loading}
+            >
+              <Settings2 size={16} />
+              <span>Admin Panel</span>
+              <ChevronDown size={16} />
+            </button>
+          </div>
+        )}
 
       </div>
     </div>
