@@ -20,6 +20,8 @@ import PIL
 
 import torch
 from diffusers import Flux2Pipeline
+from transformers import Mistral3ForConditionalGeneration, BitsAndBytesConfig
+
 from diffusers.utils import load_image
 from huggingface_hub import snapshot_download
 from PIL import Image
@@ -70,6 +72,7 @@ class InfiniteFlux2StreamHandlers:
         
         # Runner for direct inference
         self.pipe = None
+        self.text_encoder = None
         self.runner_ready = False
         
         # Inference locking mechanism with callback-based interruption
@@ -104,10 +107,16 @@ class InfiniteFlux2StreamHandlers:
             )
             logger.info(f"Model files downloaded to {flux_model_download}")
             
+            quantization_config = BitsAndBytesConfig(load_in_8bit=True)
+
+            self.text_encoder = Mistral3ForConditionalGeneration.from_pretrained(
+                repo_id, subfolder="text_encoder", dtype=torch.bfloat16, quantization_config=quantization_config
+            ).to("cuda")
+                        
             self.pipe = Flux2Pipeline.from_pretrained(
-				repo_id, torch_dtype=torch.bfloat16
-			)
-            self.pipe.enable_model_cpu_offload()
+				repo_id, text_encoder=self.text_encoder, torch_dtype=torch.bfloat16
+			).to("cuda")
+            #self.pipe.enable_model_cpu_offload()
 
             #create placeholder image for frames until first generation completed
             height = self.cfg.height
@@ -194,12 +203,12 @@ class InfiniteFlux2StreamHandlers:
         # Wait for inference to complete if one is in progress
         if self.inference_in_progress:
             logger.info("Waiting for inference to complete...")
-            # Wait up to 10 seconds for inference to finish
+            # Wait up to 20 seconds for inference to finish
             try:
-                await asyncio.wait_for(self.inference_completed_event.wait(), timeout=10.0)
+                await asyncio.wait_for(self.inference_completed_event.wait(), timeout=20.0)
                 logger.info("Inference completed successfully")
             except asyncio.TimeoutError:
-                logger.warning("Inference did not complete within 10 seconds, proceeding anyway")
+                logger.warning("Inference did not complete within 20 seconds, proceeding anyway")
 
         # Empty the frame_queue on stream stop
         lock = getattr(self, "frame_queue_lock", None)
@@ -423,13 +432,7 @@ async def main() -> None:
         processor = StreamProcessor.from_handlers(
             handlers,
             name="inifinite-flux-2-worker",
-            port=8000,
-            overlay_config=OverlayConfig(
-                mode=OverlayMode.PROGRESSBAR,
-                message="Loading...",
-                enabled=True,
-                auto_timeout_seconds=1.0,
-            )
+            port=8000
         )
                 
         # Store processor reference for background tasks

@@ -3,3 +3,4 @@ git+https://github.com/livepeer/pytrickle.git
 diffusers
 transformers
 accelerate
+bitsandbytes
