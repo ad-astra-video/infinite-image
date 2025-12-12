@@ -110,26 +110,34 @@ class InfiniteFlux2StreamHandlers:
             self.pipe.enable_model_cpu_offload()
 
             #create placeholder image for frames until first generation completed
-            colors = [
-				(148, 0, 211),   # Violet
-				(75, 0, 130),    # Indigo
-				(0, 0, 255),     # Blue
-				(0, 255, 0),     # Green
-				(255, 255, 0),   # Yellow
-				(255, 127, 0),   # Orange
-				(255, 0, 0),     # Red
-			]
+            height = self.cfg.height
+            width = self.cfg.width
+            img = Image.new("RGB", (width, height))
+            
+            # Calculate square size to create a reasonable checkerboard pattern
+            # Aim for 16 squares per dimension as a baseline
+            target_squares_per_dim = 16
+            square_size = min(width, height) // target_squares_per_dim
+            
+            # Calculate actual number of squares that fit
+            num_rows = height // square_size
+            num_cols = width // square_size
 
-            img = Image.new("RGB", (1024, 1024))
-            band_height = 1024 // len(colors)
-
-            for i, color in enumerate(colors):
-                y_start = i * band_height
-                y_end = (i + 1) * band_height if i < len(colors) - 1 else 1024
-
-                for y in range(y_start, y_end):
-                    for x in range(1024):
-                        img.putpixel((x, y), color)
+            for row in range(num_rows):
+                for col in range(num_cols):
+                    # Alternate between black and white based on position
+                    is_black = (row + col) % 2 == 0
+                    color = (0, 0, 0) if is_black else (255, 255, 255)
+                    
+                    # Fill the current square
+                    y_start = row * square_size
+                    y_end = (row + 1) * square_size
+                    x_start = col * square_size
+                    x_end = (col + 1) * square_size
+                    
+                    for y in range(y_start, min(y_end, height)):
+                        for x in range(x_start, min(x_end, width)):
+                            img.putpixel((x, y), color)
 
             self.placeholder_frame = pil_to_bhwc(img)
 
@@ -314,7 +322,15 @@ class InfiniteFlux2StreamHandlers:
                 callback_on_step_end=interrupt_callback
             ).images[0]
             
-            logger.info(f"Completed inference #{self.inference_count}")
+            # update seed based on adjustment strategy
+            if self.cfg.seed_adjustment == "increment":
+                self.cfg.seed += 1
+            elif self.cfg.seed_adjustment == "decrement":
+                self.cfg.seed -= 1
+            elif self.cfg.seed_adjustment == "random":
+                self.cfg.seed = random.randint(0, 2**32 - 1)
+            
+            logger.info(f"Completed inference #{self.inference_count} seed: {self.cfg.seed}")
             return result
         except Exception as e:
             if "interrupt" in str(e).lower() or hasattr(self.pipe, '_interrupt'):
@@ -323,38 +339,6 @@ class InfiniteFlux2StreamHandlers:
             else:
                 logger.error(f"Inference #{self.inference_count} failed with error: {e}")
                 raise
-        finally:
-            # Ensure inference state is reset and signal completion
-            self.inference_in_progress = False
-            self.inference_completed_event.set()
-            logger.info(f"Inference #{self.inference_count} completed - in_progress: {self.inference_in_progress}")
-    
-    def _run_inference(self) -> Image.Image:
-        """
-        Legacy synchronous function that runs PyTorch inference in a background thread.
-        This contains the actual model inference that was blocking the event loop.
-        """
-        # Track inference state
-        self.inference_in_progress = True
-        self.inference_count += 1
-        logger.info(f"Starting inference #{self.inference_count} - in_progress: {self.inference_in_progress}")
-        
-        # Clear completion event for new inference
-        self.inference_completed_event.clear()
-        
-        try:
-            result = self.pipe(
-                generator=torch.Generator(device="cuda").manual_seed(self.cfg.seed),
-                image=self.cfg.processed_reference_images,
-                height=self.cfg.height,
-                width=self.cfg.width,
-                prompt=self.cfg.prompt,
-                guidance_scale=self.cfg.guidance_scale,
-                num_inference_steps=self.cfg.steps
-            ).images[0]
-            
-            logger.info(f"Completed inference #{self.inference_count}")
-            return result
         finally:
             # Ensure inference state is reset and signal completion
             self.inference_in_progress = False
@@ -388,7 +372,7 @@ class InfiniteFlux2StreamHandlers:
 
                 if not self.processor is None:
                     await self.processor.send_input_frame(video_frame)
-                    logger.info(f"Sent {video_frame.__class__.__name__} frame with timestamp {video_frame.timestamp}")
+                    #logger.info(f"Sent {video_frame.__class__.__name__} frame with timestamp {video_frame.timestamp}")
                     if self.no_audio_in_stream:
                         #send silent audio frame to keep audio/video sync
                         await self.processor.send_input_frame(
@@ -426,6 +410,7 @@ class InfiniteFlux2StreamHandlers:
         self.cfg.steps = int(params.get("steps", self.cfg.steps))
         self.cfg.guidance_scale = float(params.get("guidance_scale", self.cfg.guidance_scale))
         self.cfg.seed = int(params.get("seed", self.cfg.seed))
+        self.cfg.seed_adjustment = params.get("seed_adjustment", self.cfg.seed_adjustment)
         # Reset processed reference images on param update
         self.cfg.processed_reference_images = None  
 
