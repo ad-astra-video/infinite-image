@@ -3,8 +3,6 @@ services:
     build:
       context: ./register
       dockerfile: Dockerfile.register_worker
-    env_file:
-      - .env.register
     container_name: byoc-stream-register-worker
     environment:
       - "ORCH_URL=https://${ORCH_SERVICE_ADDR}"
@@ -19,31 +17,30 @@ services:
     image: ${RUNNER_IMAGE}
     container_name: byoc-stream-runner
     runtime: nvidia
-    env_file:
-      - .env.worker
     environment:
-      VERSION: 0.1.5
+      VERSION: 0.14.5
+      HF_TOKEN: ${HF_TOKEN}
     #use this to limit the ephemeral port range used by webrtc if needed
     #sysctls:
     #    net.ipv4.ip_local_port_range: "44000 44100"
     ports:
-      - 8000:8000
-    #volumes:
+      - 8888:8000
+    volumes:
       #example to include models in the runner
-      #- ../../data/models/deep-live-cam:/root/.cache/huggingface/hub/
+      - /models2:/root/.cache/huggingface/hub
       ##development examples##
       #- C:\dev\pytrickle\pytrickle:/opt/venv/lib/python3.12/site-packages/pytrickle
-  runner-proxy:
-    image: caddy:latest
-    container_name: byoc-stream-runner-proxy
-    ports:
-      - 9099:9099
-    volumes:
-      - ./proxy/Caddyfile:/etc/caddy/Caddyfile
-    environment:
-      - HOST=${HOST}
-      - AI_RUNNER_PORT=${AI_RUNNER_PORT}
-      - AI_RUNNER_HTTPS_EMAIL=${AI_RUNNER_HTTPS_EMAIL}
+#  runner-proxy:
+#    image: caddy:latest
+#    container_name: byoc-stream-runner-proxy
+#    ports:
+#      - 9099:9099
+#    volumes:
+#      - ./proxy/Caddyfile:/etc/caddy/Caddyfile
+#    environment:
+#      - HOST=${HOST}
+#      - AI_RUNNER_PORT=${AI_RUNNER_PORT}
+#      - AI_RUNNER_HTTPS_EMAIL=${AI_RUNNER_HTTPS_EMAIL}
 networks:
   default:
     name: byoc-stream

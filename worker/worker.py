@@ -31,7 +31,7 @@ from pytrickle.decorators import (
     param_updater,
     video_handler,
 )
-from utils.enhance import enhance_frames
+
 import torchvision.transforms as T
 pil_to_tensor = T.ToTensor()
 
@@ -90,8 +90,7 @@ class InfiniteFlux2StreamHandlers:
             repo_id = os.environ.get("FLUX2_REPO_ID", "black-forest-labs/FLUX.2-dev")
             flux_model_download = snapshot_download(
                 repo_id=repo_id,
-                exclude_patterns=["flux2-dev.safetensors", "ae.safetensors"],
-                local_dir=os.environ.get("MODEL_PATH", "/models")
+                ignore_patterns=["flux2-dev.safetensors", "ae.safetensors"]
             )
             logger.info(f"Model files downloaded to {flux_model_download}")
             
