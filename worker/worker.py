@@ -10,9 +10,9 @@ import logging
 import os
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Type, Any, get_type_hints
 from fractions import Fraction
 import random
 import PIL
@@ -50,13 +50,12 @@ class InfiniteFlux2Config:
     prompt: str = "Realistic macro photograph of a hermit crab using a soda can as its shell, partially emerging from the can, captured with sharp detail and natural colors, on a sunlit beach with soft shadows and a shallow depth of field, with blurred ocean waves in the background. The can has the text `BFL Diffusers` on it and it has a color gradient that start with #FF5733 at the top and transitions to #33FF57 at the bottom."
     height: int = 1024
     width: int = 1024
-    reference_images: List[str] = None
+    reference_images: list[str] = None
     steps: int = 28
     guidance_scale: float = 4.0
     seed : int = 42
     #processed inputs to use for generation
-    processed_reference_images: List[PIL.Image.Image] = None
-
+    processed_reference_images: list["Image.Image"] = None
 
 class InfiniteFlux2StreamHandlers:
     """Handlers for InfiniteFlux2 video generation with direct tensor inference."""
@@ -98,9 +97,10 @@ class InfiniteFlux2StreamHandlers:
             
             self.pipe = Flux2Pipeline.from_pretrained(
 				repo_id, torch_dtype=torch.bfloat16
-			).to("cuda")
-            
-			#create placeholder image for frames until first generation completed
+			)
+            self.pipe.enable_model_cpu_offload()
+
+            #create placeholder image for frames until first generation completed
             colors = [
 				(148, 0, 211),   # Violet
 				(75, 0, 130),    # Indigo
@@ -148,10 +148,10 @@ class InfiniteFlux2StreamHandlers:
             
             # Initialize frame sender queue and task
             # Lock used to protect enqueuing of generated frames
-            frame_generator = asyncio.create_task(self._generate_images_for_video())
-            self.background_tasks.append(frame_generator)
             frame_sender_task = asyncio.create_task(self._send_frames())
             self.background_tasks.append(frame_sender_task)
+            frame_generator = asyncio.create_task(self._generate_images_for_video())
+            self.background_tasks.append(frame_generator)            
 
             # Set frame_timestamp and increment
             self.frame_timestamp = 0
@@ -226,25 +226,36 @@ class InfiniteFlux2StreamHandlers:
                 break
             try:
                 gen_start = time.perf_counter()
-                image = self.pipe(
-					generator=torch.Generator(device="cuda").manual_seed(self.cfg.seed),
-					image=self.cfg.processed_reference_images,
-                                        height=self.cfg.height,
-                                        width=self.cfg.width,
-                                        prompt=self.cfg.prompt,
-                                        guidance_scale=self.cfg.guidance_scale,
-                                        num_inference_steps=self.cfg.steps
-				).images[0]
+                
+                # Move PyTorch inference to background thread to avoid blocking asyncio loop
+                image = await asyncio.to_thread(self._run_inference)
+                
                 gen_end = time.perf_counter()
                 logger.info(f"Image generation took {gen_end - gen_start:.2f} seconds")
 
-                self.current_frame = image
+                # Update current frame in a thread-safe manner
+                self.current_frame = pil_to_bhwc(image)
 
             except Exception as e:
                 logger.error(f"Error in image generation: {e}", exc_info=True)
                 await asyncio.sleep(1.0)
             
             await asyncio.sleep(0.1)
+
+    def _run_inference(self) -> Image.Image:
+        """
+        Synchronous function that runs PyTorch inference in a background thread.
+        This contains the actual model inference that was blocking the event loop.
+        """
+        return self.pipe(
+            generator=torch.Generator(device="cuda").manual_seed(self.cfg.seed),
+            image=self.cfg.processed_reference_images,
+            height=self.cfg.height,
+            width=self.cfg.width,
+            prompt=self.cfg.prompt,
+            guidance_scale=self.cfg.guidance_scale,
+            num_inference_steps=self.cfg.steps
+        ).images[0]
 
     async def _send_frames(self):
         """
@@ -287,8 +298,15 @@ class InfiniteFlux2StreamHandlers:
         When start_image is received, initiate the video generation pipeline.
         """
         #update params sent
-        self.cfg = InfiniteFlux2Config(**params)
-        self.cfg.processed_reference_images = None  # Reset processed reference images on param update
+        self.cfg = InfiniteFlux2Config()
+        self.cfg.height = int(params.get("height", self.cfg.height))
+        self.cfg.width = int(params.get("width", self.cfg.width))
+        self.cfg.prompt = params.get("prompt", self.cfg.prompt)
+        self.cfg.steps = int(params.get("steps", self.cfg.steps))
+        self.cfg.guidance_scale = float(params.get("guidance_scale", self.cfg.guidance_scale))
+        self.cfg.seed = int(params.get("seed", self.cfg.seed))
+        # Reset processed reference images on param update
+        self.cfg.processed_reference_images = None  
 
 async def main() -> None:
     """Main entry point - creates and runs the stream processor."""
