@@ -109,10 +109,11 @@ class InfiniteFlux2StreamHandlers:
             
             quantization_config = BitsAndBytesConfig(load_in_8bit=True)
 
+            logger.info("Loading text encoder with 8-bit quantization")
             self.text_encoder = Mistral3ForConditionalGeneration.from_pretrained(
                 repo_id, subfolder="text_encoder", dtype=torch.bfloat16, quantization_config=quantization_config
             ).to("cuda")
-                        
+            logger.info("Loading the Flux2 pipeline")
             self.pipe = Flux2Pipeline.from_pretrained(
 				repo_id, text_encoder=self.text_encoder, torch_dtype=torch.bfloat16
 			).to("cuda")
