@@ -48,6 +48,8 @@ def pil_to_bhwc(img: Image.Image) -> torch.Tensor:
 @dataclass
 class InfiniteFlux2Config:
     prompt: str = "Realistic macro photograph of a hermit crab using a soda can as its shell, partially emerging from the can, captured with sharp detail and natural colors, on a sunlit beach with soft shadows and a shallow depth of field, with blurred ocean waves in the background. The can has the text `BFL Diffusers` on it and it has a color gradient that start with #FF5733 at the top and transitions to #33FF57 at the bottom."
+    height: int = 1024
+    width: int = 1024
     reference_images: List[str] = None
     steps: int = 28
     guidance_scale: float = 4.0
@@ -94,8 +96,8 @@ class InfiniteFlux2StreamHandlers:
             )
             logger.info(f"Model files downloaded to {flux_model_download}")
             
-            pipe = Flux2Pipeline.from_pretrained(
-				repo_id, text_encoder=None, torch_dtype=torch.bfloat16
+            self.pipe = Flux2Pipeline.from_pretrained(
+				repo_id, torch_dtype=torch.bfloat16
 			).to("cuda")
             
 			#create placeholder image for frames until first generation completed
@@ -121,6 +123,9 @@ class InfiniteFlux2StreamHandlers:
                         img.putpixel((x, y), color)
 
             self.placeholder_frame = pil_to_bhwc(img)
+
+            # Set ready flag to open up worker
+            self.runner_ready = True
         except Exception as e:
             logger.error(f"Error loading model: {e}", exc_info=True)
             self.runner_ready = False
@@ -224,7 +229,11 @@ class InfiniteFlux2StreamHandlers:
                 image = self.pipe(
 					generator=torch.Generator(device="cuda").manual_seed(self.cfg.seed),
 					image=self.cfg.processed_reference_images,
-					**self.cfg
+                                        height=self.cfg.height,
+                                        width=self.cfg.width,
+                                        prompt=self.cfg.prompt,
+                                        guidance_scale=self.cfg.guidance_scale,
+                                        num_inference_steps=self.cfg.steps
 				).images[0]
                 gen_end = time.perf_counter()
                 logger.info(f"Image generation took {gen_end - gen_start:.2f} seconds")
@@ -254,7 +263,7 @@ class InfiniteFlux2StreamHandlers:
 
                 if not self.processor is None:
                     await self.processor.send_input_frame(video_frame)
-                    logger.info(f"Sent {video_frame.__class__.__name__} frame {i+1}/{num_frames} with updated timestamp {video_frame.timestamp}")
+                    #logger.info(f"Sent {video_frame.__class__.__name__} frame with timestamp {video_frame.timestamp}")
                     if self.no_audio_in_stream:
                         #send silent audio frame to keep audio/video sync
                         await self.processor.send_input_frame(
