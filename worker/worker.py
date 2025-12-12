@@ -48,13 +48,14 @@ def pil_to_bhwc(img: Image.Image) -> torch.Tensor:
 
 @dataclass
 class InfiniteFlux2Config:
-    prompt: str = "Realistic macro photograph of a hermit crab using a soda can as its shell, partially emerging from the can, captured with sharp detail and natural colors, on a sunlit beach with soft shadows and a shallow depth of field, with blurred ocean waves in the background. The can has the text `BFL Diffusers` on it and it has a color gradient that start with #FF5733 at the top and transitions to #33FF57 at the bottom."
+    prompt: str = "A serene deep forest landscape at dawn, soft golden light filtering through towering ancient trees, dense moss-covered trunks, gentle mist drifting between the branches, scattered wildflowers along a narrow winding path, lush ferns covering the forest floor, calm atmosphere, cinematic composition with strong depth, ultra-detailed textures, natural color palette, subtle rays of light, tranquil and immersive mood."
     height: int = 1024
     width: int = 1024
     reference_images: list[str] = None
     steps: int = 28
     guidance_scale: float = 4.0
     seed : int = 42
+    seed_adjustment: str = "increment"  #none, random, increment, decrement
     #processed inputs to use for generation
     processed_reference_images: list["Image.Image"] = None
 
@@ -371,6 +372,16 @@ class InfiniteFlux2StreamHandlers:
             silent_audio_tensor = torch.zeros((2, int(48000 * (1.0 / self.fps))), dtype=torch.float)
 
             while True:
+                # Check for task cancellation at the start of each iteration
+                if asyncio.current_task() and asyncio.current_task().cancelled():
+                    logger.info("Frame sender task cancelled - exiting loop")
+                    raise asyncio.CancelledError("Task cancelled")
+                
+                # Check if stream should stop
+                if self.processor and self.processor.server.current_client.stop_event.is_set():
+                    logger.info("Frame sender task stopping due to stream stop event")
+                    break
+                
                 #set frame and increment timestamp
                 video_frame = VideoFrame(tensor=self.current_frame, timestamp=self.frame_timestamp, time_base=self.time_base_frac)
                 self.frame_timestamp += self.timestamp_increment
@@ -389,10 +400,17 @@ class InfiniteFlux2StreamHandlers:
                                 layout="stereo"
                             )
                         )
-                    await asyncio.sleep(1.0 * ((self.timestamp_increment-10) / 90000))  # Sleep to maintain target FPS
+                    
+                    # Sleep to maintain target FPS with cancellation check
+                    sleep_duration = 1.0 * ((self.timestamp_increment-10) / 90000)
+                    try:
+                        await asyncio.sleep(sleep_duration)
+                    except asyncio.CancelledError:
+                        logger.info("Frame sender task cancelled during sleep")
+                        raise
         except asyncio.CancelledError:
             logger.info("Frame sender task cancelled")
-            raise       
+            raise
     
     @param_updater
     async def update_params(self, params: dict) -> None:
