@@ -51,8 +51,8 @@ def pil_to_bhwc(img: Image.Image) -> torch.Tensor:
 @dataclass
 class InfiniteFlux2Config:
     prompt: str = "A serene deep forest landscape at dawn, soft golden light filtering through towering ancient trees, dense moss-covered trunks, gentle mist drifting between the branches, scattered wildflowers along a narrow winding path, lush ferns covering the forest floor, calm atmosphere, cinematic composition with strong depth, ultra-detailed textures, natural color palette, subtle rays of light, tranquil and immersive mood."
-    height: int = 1024
-    width: int = 1024
+    height: int = 2048
+    width: int = 2048
     reference_images: list[str] = None
     steps: int = 28
     guidance_scale: float = 4.0
@@ -94,10 +94,42 @@ class InfiniteFlux2StreamHandlers:
         self.placeholder_frame = None
         self.current_frame = None
         self.no_audio_in_stream = True
-       
+
+    async def create_placeholder_frame(self):
+        #create placeholder image for frames until first generation completed
+            height = self.cfg.height
+            width = self.cfg.width
+            img = Image.new("RGB", (width, height))
+
+            # Calculate square size to create a reasonable checkerboard pattern
+            # Aim for 16 squares per dimension as a baseline
+            target_squares_per_dim = 16
+            square_size = min(width, height) // target_squares_per_dim
+
+            # Calculate actual number of squares that fit
+            num_rows = height // square_size
+            num_cols = width // square_size
+
+            for row in range(num_rows):
+                for col in range(num_cols):
+                    # Alternate between black and white based on position
+                    is_black = (row + col) % 2 == 0
+                    color = (0, 0, 0) if is_black else (255, 255, 255)
+
+                    # Fill the current square
+                    y_start = row * square_size
+                    y_end = (row + 1) * square_size
+                    x_start = col * square_size
+                    x_end = (col + 1) * square_size
+
+                    for y in range(y_start, min(y_end, height)):
+                        for x in range(x_start, min(x_end, width)):
+                            img.putpixel((x, y), color)
+
+            self.placeholder_frame = pil_to_bhwc(img)
+
     @model_loader
     async def load(self, **kwargs: dict) -> None:
-        
         """Initialize processor state - called during model loading phase."""
         try:
             repo_id = os.environ.get("FLUX2_REPO_ID", "black-forest-labs/FLUX.2-dev")
@@ -111,45 +143,38 @@ class InfiniteFlux2StreamHandlers:
 
             logger.info("Loading text encoder with 8-bit quantization")
             self.text_encoder = Mistral3ForConditionalGeneration.from_pretrained(
-                repo_id, subfolder="text_encoder", dtype=torch.bfloat16, quantization_config=quantization_config
-            ).to("cuda")
+                repo_id, subfolder="text_encoder", dtype=torch.bfloat16, quantization_config=quantization_config,
+                device_map="cuda"
+            )
             logger.info("Loading the Flux2 pipeline")
             self.pipe = Flux2Pipeline.from_pretrained(
-				repo_id, text_encoder=self.text_encoder, torch_dtype=torch.bfloat16
-			).to("cuda")
-            #self.pipe.enable_model_cpu_offload()
-
-            #create placeholder image for frames until first generation completed
-            height = self.cfg.height
-            width = self.cfg.width
-            img = Image.new("RGB", (width, height))
+				repo_id, text_encoder=None, torch_dtype=torch.bfloat16,
+                                device_map="cuda"
+			)
+            self.pipe.text_encoder = self.text_encoder
             
-            # Calculate square size to create a reasonable checkerboard pattern
-            # Aim for 16 squares per dimension as a baseline
-            target_squares_per_dim = 16
-            square_size = min(width, height) // target_squares_per_dim
-            
-            # Calculate actual number of squares that fit
-            num_rows = height // square_size
-            num_cols = width // square_size
+            # Optimize pipeline for SPEED
+            from torchao.quantization import quantize_, PerRow, Float8DynamicActivationFloat8WeightConfig
+            quantize_(self.pipe.transformer, Float8DynamicActivationFloat8WeightConfig(granularity=PerRow()))
+            #run warmup to quantize
+            #self.pipe(prompt="a cat", height=2048, width=2048, guidance_scale=3.5, num_inference_steps=28)
+            #compile
+            #self.pipe.transformer.fuse_qkv_projections()   #does not work with torchao fp8
+            #self.pipe.vae.fuse_qkv_projections()
+            self.pipe.transformer.to(memory_format=torch.channels_last)
+            #self.pipe.vae.to(memory_format=torch.channels_last)
+            self.pipe.transformer = torch.compile(
+                self.pipe.transformer,
+                mode="default"
+            )
+            #self.pipe.vae.decode = torch.compile(
+            #    self.pipe.vae.decode,
+            #    mode="default"
+            #)
+            #run warmup
+            self.pipe(prompt="a cat", height=2048, width=2048, guidance_scale=3.5, num_inference_steps=28)
 
-            for row in range(num_rows):
-                for col in range(num_cols):
-                    # Alternate between black and white based on position
-                    is_black = (row + col) % 2 == 0
-                    color = (0, 0, 0) if is_black else (255, 255, 255)
-                    
-                    # Fill the current square
-                    y_start = row * square_size
-                    y_end = (row + 1) * square_size
-                    x_start = col * square_size
-                    x_end = (col + 1) * square_size
-                    
-                    for y in range(y_start, min(y_end, height)):
-                        for x in range(x_start, min(x_end, width)):
-                            img.putpixel((x, y), color)
-
-            self.placeholder_frame = pil_to_bhwc(img)
+            await self.create_placeholder_frame()
 
             # Set ready flag to open up worker
             self.runner_ready = True
@@ -164,28 +189,26 @@ class InfiniteFlux2StreamHandlers:
         try:
             logger.info("Stream started, initializing resources")
             self.background_task_started = False
-            
             # Check if runner is ready
             if not self.runner_ready:
                 logger.error("Runner not ready - model may not be loaded yet")
                 raise RuntimeError("Model not loaded - please wait for load() to complete")
-            
-			# Reset streaming state
+
+            # Update params for pipeline
+            self.update_params(params)
+            # Reset streaming state
+            await self.create_placeholder_frame()
             self.current_frame = self.placeholder_frame
-            
             # Initialize frame sender queue and task
             # Lock used to protect enqueuing of generated frames
             frame_sender_task = asyncio.create_task(self._send_frames())
             self.background_tasks.append(frame_sender_task)
             frame_generator = asyncio.create_task(self._generate_images_for_video())
-            self.background_tasks.append(frame_generator)            
+            self.background_tasks.append(frame_generator)
 
             # Set frame_timestamp and increment
             self.frame_timestamp = 0
             self.timestamp_increment = self.time_base // self.fps
-            
-            # Mark that we received init image and start generation task
-            await self.update_params(params)
             # Runner is already initialized in load(), no need for server subprocess
             logger.info("Stream initialization complete - runner ready for inference")
         except Exception as e:
