@@ -568,9 +568,9 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
 
               {/* Manual Stream Recovery */}
               <div className="admin-section">
-                <h3>Recover Stream</h3>
+                <h3>Recover Stream Control</h3>
                 <p style={{ fontSize: '12px', color: '#666', marginBottom: '12px' }}>
-                  Enter a streamId to recover a running stream from the gateway
+                  Enter a streamId to recover control of a running stream on the gateway
                 </p>
                 
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
