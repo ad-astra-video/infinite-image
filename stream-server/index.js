@@ -123,8 +123,8 @@ app.use(helmet({
       imgSrc: ["'self'", "data:", "https:"],
       fontSrc: ["'self'"],
       objectSrc: ["'none'"],
-      mediaSrc: ["'self'"],
-      frameSrc: ["'self'"],
+      mediaSrc: ["'self'", "https://livepeercdn.studio", "https://lvpr.tv"],
+      frameSrc: ["'self'", "https://livepeercdn.studio", "https://lvpr.tv"],
     },
   },
   crossOriginOpenerPolicy: {

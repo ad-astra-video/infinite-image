@@ -141,7 +141,7 @@ class StreamRouter {
           status: "running",
           whep_url: whepUrl,
           stream_id: this.streamUrls.stream_id,
-          playback_url: this.streamUrls.playback_url,
+          playback_url: savedSettings.playback_url || this.streamUrls.playback_url || '',
           iframe_html: savedSettings.iframe_html || ''
         }
       });
@@ -384,32 +384,59 @@ class StreamRouter {
       
       if (req) {
         // Direct request-based stream start (from admin panel)
-        const { height, width, rtmp_output, iframe_html, ...dynamicParams } = req.body;
+        const { height, width, rtmp_output, stream_key, playback_url, iframe_html, ...dynamicParams } = req.body;
         
         // Required fields validation
         if (!height || !width) {
           throw new Error("Height and Width are required fields");
         }
         
-        //if (!rtmp_output || rtmp_output.length === 0) {
-        //  throw new Error("At least one RTMP URL is required");
-        //}
+        // Validate height and width limits
+        const heightNum = parseInt(height);
+        const widthNum = parseInt(width);
+        
+        if (heightNum <= 0) {
+          throw new Error("Height must be a positive number");
+        }
+        
+        if (widthNum <= 0) {
+          throw new Error("Width must be a positive number");
+        }
+        
+        if (heightNum > 1920) {
+          throw new Error("Height must not exceed 1920 pixels");
+        }
+        
+        if (widthNum > 1920) {
+          throw new Error("Width must not exceed 1920 pixels");
+        }
         
         // Sanitize iframe_html to prevent XSS attacks
         const sanitizedIframeHtml = this.sanitizeIframeHtml(iframe_html);
+        
+        // Combine RTMP URL and Stream Key
+        let combinedRtmpOutput = rtmp_output;
+        if (stream_key && stream_key.trim()) {
+          // Remove trailing slash from RTMP URL if present
+          const cleanRtmpUrl = rtmp_output.replace(/\/$/, '');
+          // Append stream key with slash
+          combinedRtmpOutput = `${cleanRtmpUrl}/${stream_key.trim()}`;
+        }
         
         // Store complete stream settings for admin panel recovery
         streamSettings = {
           height,
           width,
           rtmp_output,
+          stream_key,
+          playback_url,
           iframe_html: sanitizedIframeHtml,
           dynamicParams
         };
         
         // Build stream request with all parameters
         streamRequest = {
-          rtmp_output: rtmp_output,
+          rtmp_output: combinedRtmpOutput,
           params: JSON.stringify({ height, width, ...dynamicParams })
         };
 
@@ -439,6 +466,8 @@ class StreamRouter {
           height: startReq.parameters?.height || '1024',
           width: startReq.parameters?.width || '1024',
           rtmp_output: startReq.stream_request?.rtmp_output || '',
+          stream_key: '',
+          playback_url: '',
           iframe_html: '',
           dynamicParams: startReq.parameters || {}
         };
@@ -478,7 +507,8 @@ class StreamRouter {
           ...broadcastConfig,
           stream_id: this.streamId,
           urls: this.streamUrls,
-          iframe_html: streamSettings.iframe_html || ''
+          iframe_html: streamSettings.iframe_html || '',
+          playback_url: streamSettings.playback_url || ''
         }
       };
     } catch (error) {
@@ -492,7 +522,7 @@ class StreamRouter {
     const { ...dynamicParams } = req;
     
     // EXCLUDE required fields - allow all other parameters to be updated
-    const requiredFields = ['height', 'width', 'rtmp_output', 'iframe_html'];
+    const requiredFields = ['height', 'width', 'rtmp_output', 'stream_key', 'iframe_html'];
     const allowedParams = Object.keys(req).filter(key => !requiredFields.includes(key));
     
     if (allowedParams.length === 0) {
@@ -504,6 +534,29 @@ class StreamRouter {
       obj[key] = req[key];
       return obj;
     }, {});
+    
+    // Handle stream_key updates by combining with existing rtmp_output
+    if (req.stream_key !== undefined && this.streamId) {
+      const currentSettings = this.streamSettings.get(this.streamId) || {};
+      const currentRtmpOutput = currentSettings.rtmp_output || '';
+      
+      let updatedRtmpOutput = currentRtmpOutput;
+      if (req.stream_key && req.stream_key.trim()) {
+        // Remove trailing slash from current RTMP URL if present
+        const cleanRtmpUrl = currentRtmpOutput.replace(/\/$/, '');
+        // Append stream key with slash
+        updatedRtmpOutput = `${cleanRtmpUrl}/${req.stream_key.trim()}`;
+      }
+      
+      // Update the stored settings
+      const updatedSettings = {
+        ...currentSettings,
+        stream_key: req.stream_key,
+        rtmp_output: updatedRtmpOutput
+      };
+      this.streamSettings.set(this.streamId, updatedSettings);
+      this.logger.info(`Updated stored stream settings for stream ${this.streamId}`);
+    }
     
     // Create livepeer header for direct requests
     const livepeerHdr = {
@@ -529,21 +582,29 @@ class StreamRouter {
 
       this.logger.info(`Stream updated with parameters: ${allowedParams.join(', ')}`);
       
-      // Update stored stream settings if iframe_html was provided
-      if (req.iframe_html !== undefined && this.streamId) {
-        // Sanitize iframe_html to prevent XSS attacks
-        const sanitizedIframeHtml = this.sanitizeIframeHtml(req.iframe_html);
-        
+      // Update stored stream settings if iframe_html or playback_url was provided
+      if ((req.iframe_html !== undefined || req.playback_url !== undefined) && this.streamId) {
         const currentSettings = this.streamSettings.get(this.streamId) || {};
         const updatedSettings = {
-          ...currentSettings,
-          iframe_html: sanitizedIframeHtml
+          ...currentSettings
         };
+        
+        if (req.iframe_html !== undefined) {
+          // Sanitize iframe_html to prevent XSS attacks
+          const sanitizedIframeHtml = this.sanitizeIframeHtml(req.iframe_html);
+          updatedSettings.iframe_html = sanitizedIframeHtml;
+          this.logger.info(`Updated stored iframe_html for stream ${this.streamId}`);
+        }
+        
+        if (req.playback_url !== undefined) {
+          updatedSettings.playback_url = req.playback_url;
+          this.logger.info(`Updated stored playback_url for stream ${this.streamId}`);
+        }
+        
         this.streamSettings.set(this.streamId, updatedSettings);
-        this.logger.info(`Updated stored iframe_html for stream ${this.streamId}`);
       }
       
-      // Include iframe_html in response if it was updated
+      // Include iframe_html and playback_url in response if they were updated
       const response = {
         stream: {
           status: "updated"
@@ -552,6 +613,10 @@ class StreamRouter {
       
       if (req.iframe_html !== undefined) {
         response.stream.iframe_html = this.sanitizeIframeHtml(req.iframe_html);
+      }
+      
+      if (req.playback_url !== undefined) {
+        response.stream.playback_url = req.playback_url;
       }
       
       return response;
