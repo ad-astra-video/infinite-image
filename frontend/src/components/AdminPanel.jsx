@@ -20,8 +20,31 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
     height: '1024',
     width: '1024',
     rtmp_url: '',
+    stream_key: '',
+    playback_url: '',
     iframe_html: ''
   });
+
+  // Suggested resolutions
+  const [selectedResolution, setSelectedResolution] = useState('');
+  const [showResolutionDropdown, setShowResolutionDropdown] = useState(false);
+  
+  const suggestedResolutions = {
+    '2 MP': [
+      { label: '1:1 1408x1408', width: '1408', height: '1408' },
+      { label: '3:2 1728x1152', width: '1728', height: '1152' },
+      { label: '4:3 1664x1216', width: '1664', height: '1216' },
+      { label: '16:9 1920x1088', width: '1920', height: '1088' },
+      { label: '21:9 2176x960', width: '2176', height: '960' }
+    ],
+    '1 MP (faster)': [
+      { label: '1:1 1024x1024', width: '1024', height: '1024' },
+      { label: '3:2 1216x832', width: '1216', height: '832' },
+      { label: '4:3 1152x896', width: '1152', height: '896' },
+      { label: '16:9 1344x768', width: '1344', height: '768' },
+      { label: '21:9 1536x640', width: '1536', height: '640' }
+    ]
+  };
   
   // Dynamic parameters
   const [dynamicParams, setDynamicParams] = useState([
@@ -154,6 +177,15 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
             }
           }
           
+          // Update VideoPlayer with stream data
+          const streamData = {
+            stream_id: streamId,
+            whep_url: statusData.whep_url,
+            iframe_html: statusData.iframe_html || '',
+            ...statusData
+          };
+          onStreamUpdate?.(streamData);
+          
           console.log('[AdminPanel] Stream is alive, setting status to running');
         } else {
           setStreamStatus('stopped');
@@ -232,6 +264,17 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
     }));
   };
 
+  // Handle resolution selection
+  const handleResolutionSelect = (resolution) => {
+    setRequiredFields(prev => ({
+      ...prev,
+      width: resolution.width,
+      height: resolution.height
+    }));
+    setSelectedResolution(resolution.label);
+    setShowResolutionDropdown(false);
+  };
+
   // Update RTMP URL
   const updateRtmpUrl = (value) => {
     setRequiredFields(prev => ({
@@ -263,14 +306,22 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
     
     if (!requiredFields.height || parseInt(requiredFields.height) <= 0) {
       errors.push('Height must be a positive number');
+    } else if (parseInt(requiredFields.height) > 1920) {
+      errors.push('Height must not exceed 1920 pixels');
     }
     
     if (!requiredFields.width || parseInt(requiredFields.width) <= 0) {
       errors.push('Width must be a positive number');
+    } else if (parseInt(requiredFields.width) > 1920) {
+      errors.push('Width must not exceed 1920 pixels');
     }
     
     if (!requiredFields.rtmp_url || !requiredFields.rtmp_url.trim()) {
-      errors.push('RTMP URL is required');
+      errors.push('RTMP Output URL is required');
+    }
+    
+    if (!requiredFields.stream_key || !requiredFields.stream_key.trim()) {
+      errors.push('Stream Key is required');
     }
     
     return errors;
@@ -293,6 +344,8 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
         height: requiredFields.height,
         width: requiredFields.width,
         rtmp_output: requiredFields.rtmp_url.trim(),
+        stream_key: requiredFields.stream_key.trim(),
+        playback_url: requiredFields.playback_url.trim(),
         iframe_html: requiredFields.iframe_html,
         
         // Dynamic parameters
@@ -317,14 +370,24 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
         setPreviewUrl(result.whep_url);
         
         // Save streamId for future status checks
-        if (result.stream_id) {
-          localStorage.setItem('streamId', result.stream_id);
-          setSavedStreamId(result.stream_id);
-          console.log('[AdminPanel] Saved streamId:', result.stream_id);
+        const streamId = result.stream?.stream_id || result.stream_id;
+        if (streamId) {
+          localStorage.setItem('streamId', streamId);
+          setSavedStreamId(streamId);
+          console.log('[AdminPanel] Saved streamId:', streamId);
         }
         
         setStreamAlive(true);
-        onStreamUpdate?.(result);
+        
+        // Pass stream data in the format VideoPlayer expects
+        const streamData = {
+          stream_id: streamId,
+          whep_url: result.whep_url,
+          iframe_html: result.stream?.iframe_html || '',
+          ...result.stream
+        };
+        
+        onStreamUpdate?.(streamData);
         showNotification('Stream started successfully', 'success');
       } else {
         throw new Error(result.error || 'Failed to start stream');
@@ -388,7 +451,18 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
       });
       
       if (response.ok) {
+        const result = await response.json();
         console.log('[AdminPanel] Stream updated successfully');
+        
+        // Update VideoPlayer with new iframe_html if it was changed
+        if (result.stream?.iframe_html !== undefined) {
+          const currentStreamData = {
+            stream_id: savedStreamId,
+            iframe_html: result.stream.iframe_html
+          };
+          onStreamUpdate?.(currentStreamData);
+        }
+        
         showNotification('Stream updated successfully!', 'success');
       } else {
         throw new Error('Failed to update stream');
@@ -528,27 +602,61 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
               <div className="admin-section">
                 <h3>Required Stream Configuration</h3>
                 
-                <div className="form-row">
-                  <div className="form-group">
-                    <label className="form-label">Height</label>
-                    <input
-                      type="number"
-                      className="input"
-                      placeholder="720"
-                      value={requiredFields.height}
-                      onChange={(e) => updateRequiredField('height', e.target.value)}
-                      disabled={streamStatus === 'running' && streamAlive}
-                    />
+                {/* Suggested Resolutions Dropdown */}
+                <div className="form-group">
+                  <label className="form-label">Suggested Resolutions</label>
+                  <div className="resolution-dropdown">
+                    <button
+                      type="button"
+                      className="dropdown-trigger"
+                      onClick={() => setShowResolutionDropdown(!showResolutionDropdown)}
+                    >
+                      {selectedResolution || 'Select a resolution...'}
+                      <ChevronDown className="w-4 h-4" />
+                    </button>
+                    
+                    {showResolutionDropdown && (
+                      <div className="dropdown-content">
+                        {Object.entries(suggestedResolutions).map(([category, resolutions]) => (
+                          <div key={category} className="dropdown-section">
+                            <div className="dropdown-section-header">{category}</div>
+                            {resolutions.map((resolution, index) => (
+                              <button
+                                key={index}
+                                type="button"
+                                className="dropdown-item"
+                                onClick={() => handleResolutionSelect(resolution)}
+                              >
+                                {resolution.label}
+                              </button>
+                            ))}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                  
+                </div>
+
+                <div className="form-row">
                   <div className="form-group">
                     <label className="form-label">Width</label>
                     <input
                       type="number"
                       className="input"
-                      placeholder="1280"
+                      placeholder="1344"
                       value={requiredFields.width}
                       onChange={(e) => updateRequiredField('width', e.target.value)}
+                      disabled={streamStatus === 'running' && streamAlive}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Height</label>
+                    <input
+                      type="number"
+                      className="input"
+                      placeholder="768"
+                      value={requiredFields.height}
+                      onChange={(e) => updateRequiredField('height', e.target.value)}
                       disabled={streamStatus === 'running' && streamAlive}
                     />
                   </div>
@@ -562,6 +670,28 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
                     placeholder="rtmp://example.com/stream"
                     value={requiredFields.rtmp_url}
                     onChange={(e) => updateRtmpUrl(e.target.value)}
+                  />
+                </div>
+                
+                <div className="form-group">
+                  <label className="form-label">Stream Key</label>
+                  <input
+                    type="password"
+                    className="input"
+                    placeholder="Enter your stream key"
+                    value={requiredFields.stream_key}
+                    onChange={(e) => updateRequiredField('stream_key', e.target.value)}
+                  />
+                </div>
+                
+                <div className="form-group">
+                  <label className="form-label">Playback URL (Optional)</label>
+                  <input
+                    type="url"
+                    className="input"
+                    placeholder="https://example.com/stream.m3u8"
+                    value={requiredFields.playback_url}
+                    onChange={(e) => updateRequiredField('playback_url', e.target.value)}
                   />
                 </div>
                 

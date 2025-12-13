@@ -128,6 +128,34 @@ function VideoPlayer({
     fetchStreamUrl()
   }, [])
 
+  // Refresh stream data when page becomes visible (tab switch)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        console.log('[VideoPlayer] Page became visible, refreshing stream data...');
+        fetchStreamUrl();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
+
+  // Periodic refresh of stream data every 30 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      console.log('[VideoPlayer] Periodic refresh of stream data...');
+      fetchStreamUrl();
+    }, 30000); // 30 seconds
+
+    return () => {
+      clearInterval(interval);
+    };
+  }, []);
+
   // Listen for tip jar open requests from chat interface
   useEffect(() => {
     const handleOpenTipJar = () => {
@@ -173,11 +201,29 @@ function VideoPlayer({
 
   const fetchStreamUrl = async () => {
     try {
-      if (streamData?.whep_url) {
-        setStreamUrl(streamData.whep_url);
-        setStreamStatus('running');
+      console.log('[VideoPlayer] Fetching fresh stream data from server...');
+      
+      const response = await fetch(`${API_BASE}/api/stream/url`);
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('[VideoPlayer] Fresh stream data received:', data);
+        
+        // Update streamData with fresh data from server
+        if (onStreamUpdate && data.stream) {
+          onStreamUpdate(data.stream);
+        }
+        
+        // Set stream URL and status based on fresh data
+        if (data.stream?.whep_url) {
+          setStreamUrl(data.stream.whep_url);
+          setStreamStatus('running');
+        } else {
+          setStreamStatus('not_running');
+        }
       } else {
-        setStreamStatus('not_running');
+        console.error('[VideoPlayer] Failed to fetch stream URL:', response.status, response.statusText);
+        setStreamStatus('error');
       }
     } catch (error) {
       console.error('Failed to fetch stream URL:', error)
@@ -417,21 +463,113 @@ function VideoPlayer({
               </p>
               <button
                 onClick={() => {
-                  if (playerType === 'webrtc' && streamData?.stream_id) {
-                    setupWhepConnection();
-                  } else {
-                    fetchStreamUrl();
-                  }
+                  console.log('[VideoPlayer] Retry button clicked, refreshing stream data...');
+                  fetchStreamUrl();
                 }}
                 className="youtube-retry-btn"
               >
-                Retry {playerType === 'webrtc' ? 'WHEP' : 'Connection'}
+                Refresh Stream Data
               </button>
             </div>
           </div>
         )}
         
-        {streamData && playerType === 'iframe' && streamData.iframe_html && (
+        {/* Priority order: playback_url > iframe_html > webrtc */}
+        {streamData && streamData.playback_url && (
+          <div
+            className="youtube-player-container"
+            onMouseMove={handleMouseMove}
+            onMouseLeave={() => setShowControls(false)}
+          >
+            <video
+              ref={videoRef}
+              className="stream-video"
+              autoPlay
+              muted={isMuted}
+              playsInline
+              onClick={togglePlayPause}
+            >
+              <source src={streamData.playback_url} type="application/x-mpegURL" />
+              <source src={streamData.playback_url} type="video/mp4" />
+              Your browser does not support the video tag.
+            </video>
+            
+            {/* YouTube-style controls overlay */}
+            <div className={`youtube-controls-overlay ${showControls ? 'visible' : 'hidden'}`}>
+              {/* Play/Pause button */}
+              <div className="youtube-control-center">
+                <button
+                  className="youtube-play-pause-btn"
+                  onClick={togglePlayPause}
+                >
+                  {isPlaying ? <Pause size={48} /> : <Play size={48} />}
+                </button>
+              </div>
+              
+              {/* Bottom controls */}
+              <div className="youtube-bottom-controls">
+                {/* Progress bar */}
+                <div className="youtube-progress-container">
+                  <div
+                    className="youtube-progress-bar"
+                    onClick={handleProgressClick}
+                  >
+                    <div
+                      className="youtube-progress-fill"
+                      style={{ width: `${duration > 0 ? (currentTime / duration) * 100 : 0}%` }}
+                    />
+                  </div>
+                </div>
+                
+                {/* Control buttons and time */}
+                <div className="youtube-controls-row">
+                  {/* Left side controls */}
+                  <div className="youtube-controls-left">
+                    <button className="youtube-control-btn" onClick={() => skipTime(-10)}>
+                      <SkipBack size={20} />
+                    </button>
+                    <button className="youtube-control-btn" onClick={togglePlayPause}>
+                      {isPlaying ? <Pause size={20} /> : <Play size={20} />}
+                    </button>
+                    <button className="youtube-control-btn" onClick={() => skipTime(10)}>
+                      <SkipForward size={20} />
+                    </button>
+                    
+                    {/* Volume control */}
+                    <div className="youtube-volume-container">
+                      <button className="youtube-control-btn" onClick={toggleMute}>
+                        {isMuted || volume === 0 ? <VolumeX size={20} /> : <Volume2 size={20} />}
+                      </button>
+                      <input
+                        type="range"
+                        min="0"
+                        max="1"
+                        step="0.1"
+                        value={isMuted ? 0 : volume}
+                        onChange={handleVolumeChange}
+                        className="youtube-volume-slider"
+                      />
+                    </div>
+                    
+                    {/* Time display */}
+                    <div className="youtube-time-display">
+                      {formatTime(currentTime)} / {formatTime(duration)}
+                    </div>
+                  </div>
+                  
+                  {/* Right side controls */}
+                  <div className="youtube-controls-right">
+                    <button className="youtube-control-btn" onClick={toggleFullscreen}>
+                      {isFullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {streamData && !streamData.playback_url && playerType === 'iframe' && streamData.iframe_html && (
           <div className="iframe-player-container">
             <div
               dangerouslySetInnerHTML={{ __html: streamData.iframe_html }}
@@ -440,7 +578,7 @@ function VideoPlayer({
           </div>
         )}
         
-        {streamData && playerType === 'webrtc' && streamUrl && (
+        {streamData && !streamData.playback_url && playerType === 'webrtc' && streamUrl && (
           <div
             className="youtube-player-container"
             onMouseMove={handleMouseMove}
