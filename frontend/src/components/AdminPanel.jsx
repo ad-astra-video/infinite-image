@@ -18,7 +18,7 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
   const [requiredFields, setRequiredFields] = useState({
     height: '1024',
     width: '1024',
-    rtmp_urls: ['', '', ''],
+    rtmp_url: '',
     iframe_html: ''
   });
   
@@ -121,6 +121,29 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
           setPreviewUrl(statusData.whep_url);
           setSavedStreamId(streamId); // Update saved streamId
           localStorage.setItem('streamId', streamId); // Save to localStorage
+          
+          // If settings are available, populate the form fields
+          if (statusData.settings) {
+            console.log('[AdminPanel] Populating form fields with saved settings:', statusData.settings);
+            
+            // Update required fields
+            setRequiredFields({
+              height: statusData.settings.height || '1024',
+              width: statusData.settings.width || '1024',
+              rtmp_url: statusData.settings.rtmp_output || '',
+              iframe_html: statusData.settings.iframe_html || ''
+            });
+            
+            // Update dynamic parameters
+            if (statusData.settings.dynamicParams) {
+              const dynamicParamsArray = Object.entries(statusData.settings.dynamicParams).map(([key, value]) => ({
+                key,
+                value: String(value)
+              }));
+              setDynamicParams(dynamicParamsArray);
+            }
+          }
+          
           console.log('[AdminPanel] Stream is alive, setting status to running');
         } else {
           setStreamStatus('stopped');
@@ -166,21 +189,23 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
     }
   };
 
-  // Load saved streamId from localStorage and check status
+  // Load saved streamId from localStorage and check status when admin status is confirmed
   useEffect(() => {
-    const loadSavedStreamId = () => {
-      const savedId = localStorage.getItem('streamId');
-      if (savedId) {
-        console.log('[AdminPanel] Found saved streamId:', savedId);
-        setSavedStreamId(savedId);
-        checkStreamStatus();
-      } else {
-        console.log('[AdminPanel] No saved streamId found');
-      }
-    };
+    if (isAdmin) {
+      const loadSavedStreamId = () => {
+        const savedId = localStorage.getItem('streamId');
+        if (savedId) {
+          console.log('[AdminPanel] Found saved streamId:', savedId);
+          setSavedStreamId(savedId);
+          checkStreamStatus(savedId); // Pass streamId directly instead of relying on state
+        } else {
+          console.log('[AdminPanel] No saved streamId found');
+        }
+      };
 
-    loadSavedStreamId();
-  }, []);
+      loadSavedStreamId();
+    }
+  }, [isAdmin]);
 
   // Toggle admin panel overlay
   const toggleAdminPanel = () => {
@@ -197,10 +222,10 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
   };
 
   // Update RTMP URL
-  const updateRtmpUrl = (index, value) => {
+  const updateRtmpUrl = (value) => {
     setRequiredFields(prev => ({
       ...prev,
-      rtmp_urls: prev.rtmp_urls.map((url, i) => i === index ? value : url)
+      rtmp_url: value
     }));
   };
 
@@ -233,9 +258,8 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
       errors.push('Width must be a positive number');
     }
     
-    const validRtmpUrls = requiredFields.rtmp_urls.filter(url => url.trim());
-    if (validRtmpUrls.length === 0) {
-      errors.push('At least one RTMP URL is required');
+    if (!requiredFields.rtmp_url || !requiredFields.rtmp_url.trim()) {
+      errors.push('RTMP URL is required');
     }
     
     return errors;
@@ -257,7 +281,7 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
         // Required fields
         height: requiredFields.height,
         width: requiredFields.width,
-        rtmp_output: requiredFields.rtmp_urls.filter(url => url.trim()).join(','),
+        rtmp_output: requiredFields.rtmp_url.trim(),
         iframe_html: requiredFields.iframe_html,
         
         // Dynamic parameters
@@ -331,6 +355,39 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
     }
   };
 
+  // Update stream
+  const handleUpdateStream = async () => {
+    setLoading(true);
+    
+    try {
+      // Build update request with current form values
+      const updateData = {
+        ...dynamicParams.reduce((obj, param) => {
+          obj[param.key] = param.value;
+          return obj;
+        }, {})
+      };
+
+      const response = await fetch(`${API_BASE}/api/stream/update`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updateData)
+      });
+      
+      if (response.ok) {
+        console.log('[AdminPanel] Stream updated successfully');
+        alert('Stream updated successfully!');
+      } else {
+        throw new Error('Failed to update stream');
+      }
+    } catch (error) {
+      console.error('Failed to update stream:', error);
+      alert('Failed to update stream: ' + error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Open stream preview
   const handlePreviewStream = () => {
     if (previewUrl) {
@@ -372,6 +429,11 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
                 <div className="status-indicator">
                   <div className={`status-dot ${streamStatus === 'running' ? 'status-running' : 'status-stopped'}`}></div>
                   <span className="status-text">{streamStatus}</span>
+                  {savedStreamId && (
+                    <span style={{ marginLeft: '8px', fontSize: '12px', color: '#666' }}>
+                      (ID: {savedStreamId})
+                    </span>
+                  )}
                   {checkingStatus && <span style={{ marginLeft: '8px', fontSize: '12px', color: '#666' }}>(checking...)</span>}
                 </div>
                 
@@ -379,35 +441,8 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
                 {savedStreamId && (
                   <div style={{ marginTop: '8px', fontSize: '12px', color: '#666' }}>
                     <strong>Gateway Status:</strong> {streamAlive ? '✅ Alive' : '❌ Not Alive'}
-                    <br />
-                    <strong>Saved Stream ID:</strong> {savedStreamId}
                   </div>
                 )}
-                
-                {/* Control Buttons */}
-                <div style={{ marginTop: '12px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                  {savedStreamId && (
-                    <button
-                      className="btn btn-secondary"
-                      onClick={() => checkStreamStatus(savedStreamId)}
-                      disabled={checkingStatus}
-                      style={{ fontSize: '12px', padding: '6px 12px' }}
-                    >
-                      {checkingStatus ? 'Checking...' : '🔄 Check Status'}
-                    </button>
-                  )}
-                  
-                  {previewUrl && (
-                    <button
-                      className="btn btn-secondary"
-                      onClick={handlePreviewStream}
-                      style={{ fontSize: '12px', padding: '6px 12px' }}
-                    >
-                      <Eye size={16} style={{ marginRight: '4px' }} />
-                      Preview
-                    </button>
-                  )}
-                </div>
               </div>
 
               {/* Manual Stream Recovery */}
@@ -459,6 +494,7 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
                       placeholder="720"
                       value={requiredFields.height}
                       onChange={(e) => updateRequiredField('height', e.target.value)}
+                      disabled={streamStatus === 'running' && streamAlive}
                     />
                   </div>
                   
@@ -470,24 +506,20 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
                       placeholder="1280"
                       value={requiredFields.width}
                       onChange={(e) => updateRequiredField('width', e.target.value)}
+                      disabled={streamStatus === 'running' && streamAlive}
                     />
                   </div>
                 </div>
                 
                 <div className="form-group">
-                  <label className="form-label">RTMP Output URLs</label>
-                  <div className="rtmp-urls-container">
-                    {requiredFields.rtmp_urls.map((url, index) => (
-                      <input
-                        key={index}
-                        type="url"
-                        className="input"
-                        placeholder={`RTMP URL ${index + 1}`}
-                        value={url}
-                        onChange={(e) => updateRtmpUrl(index, e.target.value)}
-                      />
-                    ))}
-                  </div>
+                  <label className="form-label">RTMP Output URL</label>
+                  <input
+                    type="url"
+                    className="input"
+                    placeholder="rtmp://example.com/stream"
+                    value={requiredFields.rtmp_url}
+                    onChange={(e) => updateRtmpUrl(e.target.value)}
+                  />
                 </div>
                 
                 <div className="form-group">
@@ -543,15 +575,26 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
               </div>
 
               {/* Control Buttons */}
-              <div className="admin-controls">
-                <button
-                  className="btn btn-primary"
-                  onClick={handleStartStream}
-                  disabled={loading || streamStatus === 'running' || (savedStreamId && streamAlive)}
-                >
-                  <Play size={16} style={{ marginRight: '8px' }} />
-                  {loading ? 'Starting...' : savedStreamId && streamAlive ? 'Stream Already Running' : 'Start Stream'}
-                </button>
+              <div className="admin-controls" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    className="btn btn-primary"
+                    onClick={handleStartStream}
+                    disabled={loading || streamStatus === 'running' || (savedStreamId && streamAlive)}
+                  >
+                    <Play size={16} style={{ marginRight: '8px' }} />
+                    {loading ? 'Starting...' : streamStatus === 'running' ? 'Stream Running' : 'Start Stream'}
+                  </button>
+                  
+                  <button
+                    className="btn btn-secondary"
+                    onClick={handleUpdateStream}
+                    disabled={(!streamAlive)}
+                  >
+                    <Settings2 size={16} style={{ marginRight: '8px' }} />
+                    {loading ? 'Updating...' : 'Update Stream'}
+                  </button>
+                </div>
                 
                 <button
                   className="btn btn-danger"

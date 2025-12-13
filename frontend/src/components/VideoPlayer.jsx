@@ -116,6 +116,10 @@ function VideoPlayer({
       setPlayerType('iframe');
     } else {
       setPlayerType('webrtc');
+      // Auto-setup WHEP connection when no iframe is available
+      if (streamData?.stream_id && !streamData?.whep_url && streamStatus === 'not_running') {
+        setupWhepConnection();
+      }
     }
   }, [streamData]);
 
@@ -178,6 +182,38 @@ function VideoPlayer({
     } catch (error) {
       console.error('Failed to fetch stream URL:', error)
       setStreamStatus('error')
+    }
+  }
+
+  const setupWhepConnection = async () => {
+    try {
+      console.log('[VideoPlayer] Setting up WHEP connection for stream:', streamData?.stream_id);
+      
+      const response = await fetch(`${API_BASE}/api/stream/setup-whep`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          streamId: streamData?.stream_id
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log('[VideoPlayer] WHEP connection setup successful:', data);
+        
+        if (data.whep_url) {
+          setStreamUrl(data.whep_url);
+          setStreamStatus('running');
+        }
+      } else {
+        console.error('[VideoPlayer] WHEP setup failed:', response.status, response.statusText);
+        setStreamStatus('error');
+      }
+    } catch (error) {
+      console.error('[VideoPlayer] WHEP connection setup failed:', error);
+      setStreamStatus('error');
     }
   }
 
@@ -376,8 +412,20 @@ function VideoPlayer({
           <div className="youtube-error-state">
             <div className="youtube-error-content">
               <p className="youtube-error-title">Connection error</p>
-              <button onClick={() => fetchStreamUrl()} className="youtube-retry-btn">
-                Retry
+              <p className="youtube-error-subtitle">
+                {playerType === 'webrtc' ? 'WHEP connection failed' : 'Stream connection failed'}
+              </p>
+              <button
+                onClick={() => {
+                  if (playerType === 'webrtc' && streamData?.stream_id) {
+                    setupWhepConnection();
+                  } else {
+                    fetchStreamUrl();
+                  }
+                }}
+                className="youtube-retry-btn"
+              >
+                Retry {playerType === 'webrtc' ? 'WHEP' : 'Connection'}
               </button>
             </div>
           </div>

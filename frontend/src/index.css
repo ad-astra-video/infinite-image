@@ -109,6 +109,23 @@ body {
   transition: var(--transition);
 }
 
+/* Disabled button styles */
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+.btn:disabled:hover {
+  background: var(--bg-secondary);
+  transform: none !important;
+  box-shadow: none !important;
+}
+
 /* Toast notification styles */
 .toast {
   position: fixed;
