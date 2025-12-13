@@ -51,8 +51,8 @@ def pil_to_bhwc(img: Image.Image) -> torch.Tensor:
 @dataclass
 class InfiniteFlux2Config:
     prompt: str = "A serene deep forest landscape at dawn, soft golden light filtering through towering ancient trees, dense moss-covered trunks, gentle mist drifting between the branches, scattered wildflowers along a narrow winding path, lush ferns covering the forest floor, calm atmosphere, cinematic composition with strong depth, ultra-detailed textures, natural color palette, subtle rays of light, tranquil and immersive mood."
-    height: int = 2048
-    width: int = 2048
+    height: int = 1024
+    width: int = 1024
     reference_images: list[str] = None
     steps: int = 28
     guidance_scale: float = 4.0
@@ -172,7 +172,7 @@ class InfiniteFlux2StreamHandlers:
             #    mode="default"
             #)
             #run warmup
-            self.pipe(prompt="a cat", height=1024, width=1024, guidance_scale=3.5, num_inference_steps=28)
+            self.pipe(prompt="a cat", height=self.cfg.height, width=self.cfg.width, guidance_scale=4, num_inference_steps=28)
 
             await self.create_placeholder_frame()
 
@@ -195,7 +195,7 @@ class InfiniteFlux2StreamHandlers:
                 raise RuntimeError("Model not loaded - please wait for load() to complete")
 
             # Update params for pipeline
-            self.update_params(params)
+            await self.update_params(params)
             # Reset streaming state
             await self.create_placeholder_frame()
             self.current_frame = self.placeholder_frame
