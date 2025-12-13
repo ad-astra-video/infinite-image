@@ -12,7 +12,7 @@ function App() {
   const [adminPanelOpen, setAdminPanelOpen] = useState(false)
   const [streamData, setStreamData] = useState(null)
   const [streamSettings, setStreamSettings] = useState({
-    prompt: 'A serene landscape with mountains and a river at sunset, digital art',
+    prompt: 'abstract watercolor sunset',
     steps: 28,
     guidance_scale: 4.0,
     reference_images: []

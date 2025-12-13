@@ -28,6 +28,40 @@ class StreamRouter {
     this.setupRoutes();
   }
 
+  // Sanitize iframe HTML to prevent XSS attacks
+  sanitizeIframeHtml(iframeHtml) {
+    if (!iframeHtml || typeof iframeHtml !== 'string') {
+      return '';
+    }
+    
+    // Remove script tags and javascript: URLs
+    let sanitized = iframeHtml
+      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+      .replace(/javascript:/gi, '')
+      .replace(/on\w+\s*=/gi, ''); // Remove event handlers like onclick, onload, etc.
+    
+    // Basic iframe tag validation - ensure it contains only safe attributes
+    const iframeRegex = /<iframe[^>]*>/gi;
+    const iframeMatches = sanitized.match(iframeRegex);
+    
+    if (iframeMatches) {
+      iframeMatches.forEach(iframeTag => {
+        // Only allow safe iframe attributes
+        const allowedAttributes = ['src', 'width', 'height', 'frameborder', 'allow', 'allowfullscreen', 'title'];
+        const unsafeAttributes = iframeTag.match(/\s(\w+)=/g) || [];
+        
+        unsafeAttributes.forEach(attr => {
+          const attrName = attr.trim().split('=')[0];
+          if (!allowedAttributes.includes(attrName)) {
+            sanitized = sanitized.replace(attr, '');
+          }
+        });
+      });
+    }
+    
+    return sanitized.trim();
+  }
+
   setupRoutes() {
     // Apply session middleware to all routes
     this.router.use(sessionMiddleware);
@@ -87,7 +121,8 @@ class StreamRouter {
         return res.json({
           stream: {
             status: "not_running",
-            whep_url: null
+            whep_url: null,
+            iframe_html: ''
           }
         });
       }
@@ -98,12 +133,16 @@ class StreamRouter {
         whepUrl = `${GATEWAY_URL.replace('gateway', 'stream')}/whep/${this.streamUrls.stream_id}`;
       }
 
+      // Get saved stream settings to include iframe_html
+      const savedSettings = this.streamSettings.get(this.streamId) || {};
+
       res.json({
         stream: {
           status: "running",
           whep_url: whepUrl,
           stream_id: this.streamUrls.stream_id,
-          playback_url: this.streamUrls.playback_url
+          playback_url: this.streamUrls.playback_url,
+          iframe_html: savedSettings.iframe_html || ''
         }
       });
     });
@@ -160,11 +199,15 @@ class StreamRouter {
     // Stream status endpoint
     this.router.get('/status', (req, res) => {
       try {
+        // Get saved stream settings to include iframe_html
+        const savedSettings = this.streamSettings.get(this.streamId) || {};
+        
         res.json({
           running: this.streamRunning,
           stream_id: this.streamId,
           urls: this.streamUrls,
-          broadcasting: this.webRTCBroadcasting.getStatus()
+          broadcasting: this.webRTCBroadcasting.getStatus(),
+          iframe_html: savedSettings.iframe_html || ''
         });
       } catch (error) {
         this.logger.error(`Stream status endpoint failed: ${error.message}`);
@@ -227,7 +270,8 @@ class StreamRouter {
           alive: isAlive,
           whep_url: statusData.whep_url || null,
           status: isAlive ? 'running' : 'stopped',
-          settings: savedSettings
+          settings: savedSettings,
+          iframe_html: savedSettings?.iframe_html || ''
         });
       } catch (error) {
         this.logger.error(`Check stream status failed: ${error.message}`);
@@ -351,12 +395,15 @@ class StreamRouter {
         //  throw new Error("At least one RTMP URL is required");
         //}
         
+        // Sanitize iframe_html to prevent XSS attacks
+        const sanitizedIframeHtml = this.sanitizeIframeHtml(iframe_html);
+        
         // Store complete stream settings for admin panel recovery
         streamSettings = {
           height,
           width,
           rtmp_output,
-          iframe_html: iframe_html || '',
+          iframe_html: sanitizedIframeHtml,
           dynamicParams
         };
         
@@ -430,7 +477,8 @@ class StreamRouter {
           status: "running",
           ...broadcastConfig,
           stream_id: this.streamId,
-          urls: this.streamUrls
+          urls: this.streamUrls,
+          iframe_html: streamSettings.iframe_html || ''
         }
       };
     } catch (error) {
@@ -480,11 +528,33 @@ class StreamRouter {
       }
 
       this.logger.info(`Stream updated with parameters: ${allowedParams.join(', ')}`);
-      return {
+      
+      // Update stored stream settings if iframe_html was provided
+      if (req.iframe_html !== undefined && this.streamId) {
+        // Sanitize iframe_html to prevent XSS attacks
+        const sanitizedIframeHtml = this.sanitizeIframeHtml(req.iframe_html);
+        
+        const currentSettings = this.streamSettings.get(this.streamId) || {};
+        const updatedSettings = {
+          ...currentSettings,
+          iframe_html: sanitizedIframeHtml
+        };
+        this.streamSettings.set(this.streamId, updatedSettings);
+        this.logger.info(`Updated stored iframe_html for stream ${this.streamId}`);
+      }
+      
+      // Include iframe_html in response if it was updated
+      const response = {
         stream: {
           status: "updated"
         }
       };
+      
+      if (req.iframe_html !== undefined) {
+        response.stream.iframe_html = this.sanitizeIframeHtml(req.iframe_html);
+      }
+      
+      return response;
     } catch (error) {
       this.logger.error(`Update stream failed: ${error.message}`);
       throw error;

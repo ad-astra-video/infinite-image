@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Minus, Play, Square, Eye, Settings2, ChevronDown, ChevronUp } from 'lucide-react';
+import { Plus, Minus, Play, Square, Eye, Settings2, ChevronDown, ChevronUp, CheckCircle, AlertTriangle, AlertCircle, Info, X } from 'lucide-react';
 import { useWallet } from './WalletConnect';
 import { API_BASE } from '../utils/apiConfig';
+import { Toast, ToastContainer } from './Toast';
 
 /**
  * Admin Panel Component
@@ -25,10 +26,10 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
   // Dynamic parameters
   const [dynamicParams, setDynamicParams] = useState([
     { key: 'capability_name', value: 'image-generation' },
-    { key: 'prompt', value: 'A serene deep forest landscape at dawn, soft golden light filtering through towering ancient trees, dense moss-covered trunks, gentle mist drifting between the branches, scattered wildflowers along a narrow winding path, lush ferns covering the forest floor, calm atmosphere, cinematic composition with strong depth, ultra-detailed textures, natural color palette, subtle rays of light, tranquil and immersive mood.' },
+    { key: 'prompt', value: 'abstract watercolor sunset' },
     { key: 'seed', value: '42' },
     { key: 'steps', value: '28' },
-    { key: 'guidance_scale', value: '4.5' }
+    { key: 'guidance_scale', value: '4.0' }
   ]);
   
   // Stream status
@@ -41,6 +42,15 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
   // Manual stream recovery
   const [manualStreamId, setManualStreamId] = useState('');
   const [recoveringStream, setRecoveringStream] = useState(false);
+
+  // Notification state
+  const [notification, setNotification] = useState(null);
+
+  // Show notification helper
+  const showNotification = (message, type = 'info') => {
+    setNotification({ message, type });
+    setTimeout(() => setNotification(null), 5000);
+  };
 
   // Check if user is admin (matches CREATOR_ADDRESS)
   // Only check after authentication is verified
@@ -167,7 +177,7 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
   // Recover stream by manually inputting streamId
   const handleRecoverStream = async () => {
     if (!manualStreamId.trim()) {
-      alert('Please enter a streamId');
+      showNotification('Please enter a streamId', 'warning');
       return;
     }
 
@@ -181,9 +191,10 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
       // If we got here, the stream check was successful
       setManualStreamId(''); // Clear the input field
       console.log('[AdminPanel] Stream recovery completed');
+      showNotification('Stream recovered successfully', 'success');
     } catch (error) {
       console.error('[AdminPanel] Failed to recover stream:', error);
-      alert('Failed to recover stream: ' + error.message);
+      showNotification('Failed to recover stream: ' + error.message, 'error');
     } finally {
       setRecoveringStream(false);
     }
@@ -269,7 +280,7 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
   const handleStartStream = async () => {
     const errors = validateRequiredFields();
     if (errors.length > 0) {
-      alert('Please fix the following errors:\n' + errors.join('\n'));
+      showNotification('Please fix the following errors:\n' + errors.join('\n'), 'warning');
       return;
     }
 
@@ -314,12 +325,13 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
         
         setStreamAlive(true);
         onStreamUpdate?.(result);
+        showNotification('Stream started successfully', 'success');
       } else {
         throw new Error(result.error || 'Failed to start stream');
       }
     } catch (error) {
       console.error('Failed to start stream:', error);
-      alert('Failed to start stream: ' + error.message);
+      showNotification('Failed to start stream: ' + error.message, 'error');
     } finally {
       setLoading(false);
     }
@@ -344,12 +356,13 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
         localStorage.removeItem('streamId');
         setSavedStreamId(null);
         console.log('[AdminPanel] Cleared saved streamId');
+        showNotification('Stream stopped successfully', 'success');
       } else {
         throw new Error('Failed to stop stream');
       }
     } catch (error) {
       console.error('Failed to stop stream:', error);
-      alert('Failed to stop stream: ' + error.message);
+      showNotification('Failed to stop stream: ' + error.message, 'error');
     } finally {
       setLoading(false);
     }
@@ -376,13 +389,13 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
       
       if (response.ok) {
         console.log('[AdminPanel] Stream updated successfully');
-        alert('Stream updated successfully!');
+        showNotification('Stream updated successfully!', 'success');
       } else {
         throw new Error('Failed to update stream');
       }
     } catch (error) {
       console.error('Failed to update stream:', error);
-      alert('Failed to update stream: ' + error.message);
+      showNotification('Failed to update stream: ' + error.message, 'error');
     } finally {
       setLoading(false);
     }
@@ -422,6 +435,43 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
               </button>
             </div>
             
+            {/* Notification Area */}
+            {notification && (
+              <div style={{
+                position: 'absolute',
+                top: '10px',
+                left: '50%',
+                transform: 'translateX(-50%)',
+                zIndex: 1000,
+                width: '90%',
+                maxWidth: '400px'
+              }}>
+                <div className="toast" style={{
+                  position: 'relative',
+                  transform: 'none',
+                  margin: '0 auto'
+                }}>
+                  <div className="toast-content">
+                    <div className={`toast-icon ${notification.type}`}>
+                      {notification.type === 'success' && <CheckCircle className="w-5 h-5 text-green-500" />}
+                      {notification.type === 'warning' && <AlertTriangle className="w-5 h-5 text-yellow-500" />}
+                      {notification.type === 'error' && <AlertCircle className="w-5 h-5 text-red-500" />}
+                      {notification.type === 'info' && <Info className="w-5 h-5 text-blue-500" />}
+                    </div>
+                    <div className="toast-text">
+                      <p>{notification.message}</p>
+                    </div>
+                    <button
+                      onClick={() => setNotification(null)}
+                      className="toast-close"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+            
             <div className="admin-content">
               {/* Stream Status */}
               <div className="admin-section">
@@ -429,20 +479,13 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
                 <div className="status-indicator">
                   <div className={`status-dot ${streamStatus === 'running' ? 'status-running' : 'status-stopped'}`}></div>
                   <span className="status-text">{streamStatus}</span>
-                  {savedStreamId && (
+                  {(streamStatus === 'running' || savedStreamId) && (
                     <span style={{ marginLeft: '8px', fontSize: '12px', color: '#666' }}>
-                      (ID: {savedStreamId})
+                      (ID: {savedStreamId || 'N/A'})
                     </span>
                   )}
                   {checkingStatus && <span style={{ marginLeft: '8px', fontSize: '12px', color: '#666' }}>(checking...)</span>}
                 </div>
-                
-                {/* Stream Alive Status */}
-                {savedStreamId && (
-                  <div style={{ marginTop: '8px', fontSize: '12px', color: '#666' }}>
-                    <strong>Gateway Status:</strong> {streamAlive ? '✅ Alive' : '❌ Not Alive'}
-                  </div>
-                )}
               </div>
 
               {/* Manual Stream Recovery */}

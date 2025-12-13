@@ -50,7 +50,7 @@ def pil_to_bhwc(img: Image.Image) -> torch.Tensor:
 
 @dataclass
 class InfiniteFlux2Config:
-    prompt: str = "A serene deep forest landscape at dawn, soft golden light filtering through towering ancient trees, dense moss-covered trunks, gentle mist drifting between the branches, scattered wildflowers along a narrow winding path, lush ferns covering the forest floor, calm atmosphere, cinematic composition with strong depth, ultra-detailed textures, natural color palette, subtle rays of light, tranquil and immersive mood."
+    prompt: str = "abstract watercolor sunset"
     height: int = 1024
     width: int = 1024
     reference_images: list[str] = None
