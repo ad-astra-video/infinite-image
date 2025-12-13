@@ -17,6 +17,7 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
   
   // Required fields
   const [requiredFields, setRequiredFields] = useState({
+    capability_name: 'image-generation',
     height: '1024',
     width: '1024',
     rtmp_url: '',
@@ -48,7 +49,6 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
   
   // Dynamic parameters
   const [dynamicParams, setDynamicParams] = useState([
-    { key: 'capability_name', value: 'image-generation' },
     { key: 'prompt', value: 'abstract watercolor sunset' },
     { key: 'seed', value: '42' },
     { key: 'steps', value: '28' },
@@ -68,6 +68,10 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
 
   // Notification state
   const [notification, setNotification] = useState(null);
+  
+  // Help text state
+  const [showResolutionHelp, setShowResolutionHelp] = useState(false);
+  const [showRequiredFieldsHelp, setShowRequiredFieldsHelp] = useState(false);
 
   // Show notification helper
   const showNotification = (message, type = 'info') => {
@@ -602,14 +606,42 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
               <div className="admin-section">
                 <h3>Required Stream Configuration</h3>
                 
+                {/* Capability Name */}
+                <div className="form-group">
+                  <label className="form-label">Capability Name</label>
+                  <input
+                    type="text"
+                    className="input"
+                    placeholder="image-generation"
+                    value={requiredFields.capability_name}
+                    onChange={(e) => {
+                      if (streamStatus === 'running' && streamAlive) {
+                        setShowRequiredFieldsHelp(true);
+                        setTimeout(() => setShowRequiredFieldsHelp(false), 3000);
+                      } else {
+                        updateRequiredField('capability_name', e.target.value);
+                      }
+                    }}
+                    disabled={streamStatus === 'running' && streamAlive}
+                  />
+                </div>
+
                 {/* Suggested Resolutions Dropdown */}
                 <div className="form-group">
                   <label className="form-label">Suggested Resolutions</label>
                   <div className="resolution-dropdown">
                     <button
                       type="button"
-                      className="dropdown-trigger"
-                      onClick={() => setShowResolutionDropdown(!showResolutionDropdown)}
+                      className={`dropdown-trigger ${streamStatus === 'running' && streamAlive ? 'disabled' : ''}`}
+                      onClick={() => {
+                        if (streamStatus === 'running' && streamAlive) {
+                          setShowResolutionHelp(true);
+                          setTimeout(() => setShowResolutionHelp(false), 3000);
+                        } else {
+                          setShowResolutionDropdown(!showResolutionDropdown);
+                        }
+                      }}
+                      disabled={streamStatus === 'running' && streamAlive}
                     >
                       {selectedResolution || 'Select a resolution...'}
                       <ChevronDown className="w-4 h-4" />
@@ -634,6 +666,13 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
                         ))}
                       </div>
                     )}
+                    
+                    {showResolutionHelp && (
+                      <div className="help-text">
+                        <Info className="w-4 h-4" />
+                        Cannot update resolution when stream is running. Stop the stream to change resolution settings.
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -645,7 +684,14 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
                       className="input"
                       placeholder="1344"
                       value={requiredFields.width}
-                      onChange={(e) => updateRequiredField('width', e.target.value)}
+                      onChange={(e) => {
+                        if (streamStatus === 'running' && streamAlive) {
+                          setShowRequiredFieldsHelp(true);
+                          setTimeout(() => setShowRequiredFieldsHelp(false), 3000);
+                        } else {
+                          updateRequiredField('width', e.target.value);
+                        }
+                      }}
                       disabled={streamStatus === 'running' && streamAlive}
                     />
                   </div>
@@ -656,7 +702,14 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
                       className="input"
                       placeholder="768"
                       value={requiredFields.height}
-                      onChange={(e) => updateRequiredField('height', e.target.value)}
+                      onChange={(e) => {
+                        if (streamStatus === 'running' && streamAlive) {
+                          setShowRequiredFieldsHelp(true);
+                          setTimeout(() => setShowRequiredFieldsHelp(false), 3000);
+                        } else {
+                          updateRequiredField('height', e.target.value);
+                        }
+                      }}
                       disabled={streamStatus === 'running' && streamAlive}
                     />
                   </div>
@@ -669,7 +722,15 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
                     className="input"
                     placeholder="rtmp://example.com/stream"
                     value={requiredFields.rtmp_url}
-                    onChange={(e) => updateRtmpUrl(e.target.value)}
+                    onChange={(e) => {
+                      if (streamStatus === 'running' && streamAlive) {
+                        setShowRequiredFieldsHelp(true);
+                        setTimeout(() => setShowRequiredFieldsHelp(false), 3000);
+                      } else {
+                        updateRtmpUrl(e.target.value);
+                      }
+                    }}
+                    disabled={streamStatus === 'running' && streamAlive}
                   />
                 </div>
                 
@@ -680,7 +741,15 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
                     className="input"
                     placeholder="Enter your stream key"
                     value={requiredFields.stream_key}
-                    onChange={(e) => updateRequiredField('stream_key', e.target.value)}
+                    onChange={(e) => {
+                      if (streamStatus === 'running' && streamAlive) {
+                        setShowRequiredFieldsHelp(true);
+                        setTimeout(() => setShowRequiredFieldsHelp(false), 3000);
+                      } else {
+                        updateRequiredField('stream_key', e.target.value);
+                      }
+                    }}
+                    disabled={streamStatus === 'running' && streamAlive}
                   />
                 </div>
                 
@@ -691,7 +760,15 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
                     className="input"
                     placeholder="https://example.com/stream.m3u8"
                     value={requiredFields.playback_url}
-                    onChange={(e) => updateRequiredField('playback_url', e.target.value)}
+                    onChange={(e) => {
+                      if (streamStatus === 'running' && streamAlive) {
+                        setShowRequiredFieldsHelp(true);
+                        setTimeout(() => setShowRequiredFieldsHelp(false), 3000);
+                      } else {
+                        updateRequiredField('playback_url', e.target.value);
+                      }
+                    }}
+                    disabled={streamStatus === 'running' && streamAlive}
                   />
                 </div>
                 
@@ -701,10 +778,25 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
                     className="textarea"
                     placeholder="<iframe src='https://player.example.com/embed/stream' width='1280' height='720'></iframe>"
                     value={requiredFields.iframe_html}
-                    onChange={(e) => updateRequiredField('iframe_html', e.target.value)}
+                    onChange={(e) => {
+                      if (streamStatus === 'running' && streamAlive) {
+                        setShowRequiredFieldsHelp(true);
+                        setTimeout(() => setShowRequiredFieldsHelp(false), 3000);
+                      } else {
+                        updateRequiredField('iframe_html', e.target.value);
+                      }
+                    }}
+                    disabled={streamStatus === 'running' && streamAlive}
                     rows={3}
                   />
                 </div>
+                
+                {showRequiredFieldsHelp && (
+                  <div className="help-text">
+                    <Info className="w-4 h-4" />
+                    Required fields cannot be changed while stream is running. Stop the stream to modify these settings.
+                  </div>
+                )}
               </div>
 
               {/* Dynamic Parameters */}
@@ -713,7 +805,15 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
                   <h3>Dynamic Parameters</h3>
                   <button
                     className="btn btn-secondary"
-                    onClick={addDynamicParam}
+                    onClick={() => {
+                      if (streamStatus === 'running' && streamAlive) {
+                        setShowRequiredFieldsHelp(true);
+                        setTimeout(() => setShowRequiredFieldsHelp(false), 3000);
+                      } else {
+                        addDynamicParam();
+                      }
+                    }}
+                    disabled={streamStatus === 'running' && streamAlive}
                   >
                     <Plus size={16} style={{ marginRight: '8px' }} />
                     Add Parameter
@@ -727,18 +827,41 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
                         className="input"
                         placeholder="Parameter name"
                         value={param.key}
-                        onChange={(e) => updateDynamicParam(index, 'key', e.target.value)}
+                        onChange={(e) => {
+                          if (streamStatus === 'running' && streamAlive) {
+                            setShowRequiredFieldsHelp(true);
+                            setTimeout(() => setShowRequiredFieldsHelp(false), 3000);
+                          } else {
+                            updateDynamicParam(index, 'key', e.target.value);
+                          }
+                        }}
+                        disabled={streamStatus === 'running' && streamAlive}
                       />
                       <input
                         className="input"
                         placeholder="Parameter value"
                         value={param.value}
-                        onChange={(e) => updateDynamicParam(index, 'value', e.target.value)}
+                        onChange={(e) => {
+                          if (streamStatus === 'running' && streamAlive) {
+                            setShowRequiredFieldsHelp(true);
+                            setTimeout(() => setShowRequiredFieldsHelp(false), 3000);
+                          } else {
+                            updateDynamicParam(index, 'value', e.target.value);
+                          }
+                        }}
+                        disabled={streamStatus === 'running' && streamAlive}
                       />
                       <button
                         className="btn btn-secondary"
-                        onClick={() => removeDynamicParam(index)}
-                        disabled={dynamicParams.length <= 1}
+                        onClick={() => {
+                          if (streamStatus === 'running' && streamAlive) {
+                            setShowRequiredFieldsHelp(true);
+                            setTimeout(() => setShowRequiredFieldsHelp(false), 3000);
+                          } else {
+                            removeDynamicParam(index);
+                          }
+                        }}
+                        disabled={dynamicParams.length <= 1 || (streamStatus === 'running' && streamAlive)}
                       >
                         <Minus size={16} />
                       </button>
