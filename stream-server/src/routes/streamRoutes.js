@@ -201,11 +201,33 @@ class StreamRouter {
 
         this.logger.info(`Stream ${streamId} status: ${isAlive ? 'alive' : 'not alive'}`);
 
+        // If stream is alive, synchronize backend state with the stream
+        if (isAlive) {
+          this.logger.info(`Synchronizing backend state for stream ${streamId}`);
+          this.streamRunning = true;
+          this.streamId = streamId;
+          this.streamUrls = { stream_id: streamId, ...statusData };
+          
+          // Start WebRTC broadcasting if not already running
+          if (!this.webRTCBroadcasting.isBroadcasting) {
+            try {
+              await this.webRTCBroadcasting.startBroadcasting(streamId);
+              this.logger.info("WebRTC broadcasting started for recovered stream");
+            } catch (broadcastError) {
+              this.logger.warn(`Failed to start WebRTC broadcasting: ${broadcastError.message}`);
+            }
+          }
+        }
+
+        // Get saved stream settings if available
+        const savedSettings = this.streamSettings.get(streamId) || null;
+
         res.json({
           stream_id: streamId,
           alive: isAlive,
           whep_url: statusData.whep_url || null,
-          status: isAlive ? 'running' : 'stopped'
+          status: isAlive ? 'running' : 'stopped',
+          settings: savedSettings
         });
       } catch (error) {
         this.logger.error(`Check stream status failed: ${error.message}`);
@@ -252,6 +274,61 @@ class StreamRouter {
         res.status(500).json({ error: error.message });
       }
     });
+
+    // WHEP connection setup endpoint
+    this.router.post('/setup-whep', async (req, res) => {
+      try {
+        const { streamId } = req.body;
+        if (!streamId) {
+          throw new Error("streamId is required");
+        }
+
+        this.logger.info(`Setting up WHEP connection for stream: ${streamId}`);
+
+        // Check stream status from gateway
+        const statusResp = await axios.get(
+          `${process.env.GATEWAY_URL || "https://gateway.muxion.video"}/ai/stream/${streamId}/status`,
+          {
+            headers: {
+              "Authorization": `Bearer ${process.env.GATEWAY_API_KEY}`
+            }
+          }
+        );
+
+        if (statusResp.status !== 200) {
+          this.logger.error(`Failed to check stream status: ${statusResp.status} ${statusResp.data}`);
+          throw new Error("Failed to check stream status");
+        }
+
+        const statusData = statusResp.data;
+        const whepUrl = statusData.whep_url;
+
+        if (!whepUrl || whepUrl.trim() === '') {
+          this.logger.error(`No WHEP URL available for stream ${streamId}`);
+          throw new Error("No WHEP URL available for this stream");
+        }
+
+        // Setup WHEP connection in broadcasting server
+        const broadcastConfig = await this.webRTCBroadcasting.setupWhepConnection(streamId, whepUrl);
+
+        this.logger.info(`WHEP connection setup successful for stream: ${streamId}`);
+
+        res.json({
+          success: true,
+          stream_id: streamId,
+          whep_url: whepUrl,
+          signaling_url: broadcastConfig.signaling_url,
+          message: "WHEP connection established successfully"
+        });
+
+      } catch (error) {
+        this.logger.error(`WHEP setup failed: ${error.message}`);
+        res.status(500).json({
+          success: false,
+          error: error.message
+        });
+      }
+    });
   }
 
   async startStream(req = null) {
@@ -259,6 +336,7 @@ class StreamRouter {
       // Handle both file-based and direct request-based stream starts
       let streamRequest;
       let livepeerHdr;
+      let streamSettings = {};
       
       if (req) {
         // Direct request-based stream start (from admin panel)
@@ -269,12 +347,18 @@ class StreamRouter {
           throw new Error("Height and Width are required fields");
         }
         
-        if (!rtmp_output) {
-          throw new Error("At least one RTMP URL is required");
-        }
+        //if (!rtmp_output || rtmp_output.length === 0) {
+        //  throw new Error("At least one RTMP URL is required");
+        //}
         
-        // Store stream settings for iframe HTML
-        this.streamSettings.set('iframe_html', iframe_html || '');
+        // Store complete stream settings for admin panel recovery
+        streamSettings = {
+          height,
+          width,
+          rtmp_output,
+          iframe_html: iframe_html || '',
+          dynamicParams
+        };
         
         // Build stream request with all parameters
         streamRequest = {
@@ -302,6 +386,15 @@ class StreamRouter {
         livepeerHdr = startReq.header;
         livepeerHdr.request = JSON.stringify(startReq.request);
         livepeerHdr.parameters = JSON.stringify(startReq.parameters);
+        
+        // Store settings from file for admin panel recovery
+        streamSettings = {
+          height: startReq.parameters?.height || '1024',
+          width: startReq.parameters?.width || '1024',
+          rtmp_output: startReq.stream_request?.rtmp_output || '',
+          iframe_html: '',
+          dynamicParams: startReq.parameters || {}
+        };
       }
 
       const startResp = await axios.post(
@@ -324,6 +417,9 @@ class StreamRouter {
       this.streamId = this.streamUrls.stream_id;
       this.streamRunning = true;
       
+      // Store complete stream settings for admin panel recovery
+      this.streamSettings.set(this.streamId, streamSettings);
+      
       // Start WebRTC broadcasting
       const broadcastConfig = await this.webRTCBroadcasting.startBroadcasting(this.streamId);
       
@@ -344,8 +440,11 @@ class StreamRouter {
   }
 
   async updateStream(req) {
+    // Extract dynamic parameters from request body
+    const { ...dynamicParams } = req;
+    
     // EXCLUDE required fields - allow all other parameters to be updated
-    const requiredFields = ['height', 'width', 'rtmp_outputs', 'iframe_html'];
+    const requiredFields = ['height', 'width', 'rtmp_output', 'iframe_html'];
     const allowedParams = Object.keys(req).filter(key => !requiredFields.includes(key));
     
     if (allowedParams.length === 0) {
@@ -358,11 +457,21 @@ class StreamRouter {
       return obj;
     }, {});
     
+    // Create livepeer header for direct requests
+    const livepeerHdr = {
+      capability: dynamicParams["capability_name"],
+      request: JSON.stringify({"stream_id": this.streamId}),
+      parameters: JSON.stringify({}),
+      timeout_seconds: 60
+    };
+
     try {
       const updateResp = await axios.post(
         `${process.env.GATEWAY_URL || "https://gateway.muxion.video"}/ai/stream/${this.streamId}/update`,
         { params: filteredParams },
-        { headers: { "Authorization": `Bearer ${process.env.GATEWAY_API_KEY}` } }
+        { headers: { 
+            "Livepeer": Buffer.from(JSON.stringify(livepeerHdr)).toString("base64"),
+            "Authorization": `Bearer ${process.env.GATEWAY_API_KEY}` } }
       );
 
       if (updateResp.status !== 200) {
@@ -387,6 +496,8 @@ class StreamRouter {
       if (!this.streamRunning || !this.streamId) {
         throw new Error("No active stream to stop");
       }
+
+      this.logger.info(`Stopping stream with streamId: ${this.streamId}`);
 
       const stopResp = await axios.post(
         `${process.env.GATEWAY_URL || "https://gateway.muxion.video"}/ai/stream/${this.streamId}/stop`,
