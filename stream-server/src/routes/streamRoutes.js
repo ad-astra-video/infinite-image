@@ -172,6 +172,47 @@ class StreamRouter {
       }
     });
 
+    // Check stream status from saved streamId (creator auth required)
+    this.router.post('/check-status', creatorAuthMiddleware, async (req, res) => {
+      try {
+        const { streamId } = req.body;
+        if (!streamId) {
+          throw new Error("streamId is required");
+        }
+
+        this.logger.info(`Checking status for streamId: ${streamId}`);
+
+        const statusResp = await axios.get(
+          `${process.env.GATEWAY_URL || "https://gateway.muxion.video"}/ai/stream/${streamId}/status`,
+          {
+            headers: {
+              "Authorization": `Bearer ${process.env.GATEWAY_API_KEY}`
+            }
+          }
+        );
+
+        if (statusResp.status !== 200) {
+          this.logger.error(`Failed to check stream status: ${statusResp.status} ${statusResp.data}`);
+          throw new Error("Failed to check stream status");
+        }
+
+        const statusData = statusResp.data;
+        const isAlive = statusData.whep_url && statusData.whep_url.trim() !== '';
+
+        this.logger.info(`Stream ${streamId} status: ${isAlive ? 'alive' : 'not alive'}`);
+
+        res.json({
+          stream_id: streamId,
+          alive: isAlive,
+          whep_url: statusData.whep_url || null,
+          status: isAlive ? 'running' : 'stopped'
+        });
+      } catch (error) {
+        this.logger.error(`Check stream status failed: ${error.message}`);
+        res.status(500).json({ error: error.message });
+      }
+    });
+
     // WebRTC signaling endpoints
     this.router.post('/broadcast/:streamId/admin/signal', (req, res) => {
       try {

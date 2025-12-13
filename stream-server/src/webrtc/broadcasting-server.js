@@ -33,7 +33,7 @@ class WebRTCBroadcastingServer {
     this.logger.info(`WebRTC broadcasting started for stream: ${streamId}`);
     
     return {
-      whep_url: `${process.env.GATEWAY_URL || "https://gateway.muxion.video"}/whep/${streamId}`,
+      whep_url: `${process.env.GATEWAY_URL || "https://gateway.muxion.video"}/${streamId}/whep`,
       signaling_url: `http://localhost:${process.env.PORT || 4021}/ai/stream/broadcast/${streamId}/signal`
     };
   }
