@@ -177,6 +177,8 @@ class InfiniteFlux2StreamHandlers:
             await self.create_placeholder_frame()
 
             # Set ready flag to open up worker
+            gc.collect()
+            torch.cuda.empty_cache()
             self.runner_ready = True
         except Exception as e:
             logger.error(f"Error loading model: {e}", exc_info=True)
@@ -436,7 +438,6 @@ class InfiniteFlux2StreamHandlers:
         When start_image is received, initiate the video generation pipeline.
         """
         #update params sent
-        self.cfg = InfiniteFlux2Config()
         self.cfg.height = int(params.get("height", self.cfg.height))
         self.cfg.width = int(params.get("width", self.cfg.width))
         self.cfg.prompt = params.get("prompt", self.cfg.prompt)
