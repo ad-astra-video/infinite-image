@@ -172,7 +172,7 @@ class InfiniteFlux2StreamHandlers:
             #    mode="default"
             #)
             #run warmup
-            self.pipe(prompt="a cat", height=2048, width=2048, guidance_scale=3.5, num_inference_steps=28)
+            self.pipe(prompt="a cat", height=1024, width=1024, guidance_scale=3.5, num_inference_steps=28)
 
             await self.create_placeholder_frame()
 
