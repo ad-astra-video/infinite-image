@@ -34,6 +34,13 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
   // Stream status
   const [streamStatus, setStreamStatus] = useState('stopped');
   const [previewUrl, setPreviewUrl] = useState(null);
+  const [savedStreamId, setSavedStreamId] = useState(null);
+  const [streamAlive, setStreamAlive] = useState(false);
+  const [checkingStatus, setCheckingStatus] = useState(false);
+  
+  // Manual stream recovery
+  const [manualStreamId, setManualStreamId] = useState('');
+  const [recoveringStream, setRecoveringStream] = useState(false);
 
   // Check if user is admin (matches CREATOR_ADDRESS)
   // Only check after authentication is verified
@@ -80,6 +87,100 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
     
     checkAdminStatus();
   }, [address, isConnected, enhancedAuth?.authenticated]);
+
+  // Check stream status from saved streamId
+  const checkStreamStatus = async (streamId = savedStreamId) => {
+    if (!streamId) {
+      console.log('[AdminPanel] No streamId to check status for');
+      return;
+    }
+
+    setCheckingStatus(true);
+    console.log('[AdminPanel] Checking stream status for streamId:', streamId);
+
+    try {
+      // Call stream-server endpoint instead of gateway directly
+      const response = await fetch(`${API_BASE}/api/stream/check-status`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ streamId })
+      });
+
+      console.log('[AdminPanel] Status response status:', response.status);
+
+      if (response.ok) {
+        const statusData = await response.json();
+        console.log('[AdminPanel] Status response data:', statusData);
+        
+        // Check if stream is alive (has whep_url)
+        const isAlive = statusData.alive;
+        setStreamAlive(isAlive);
+        
+        if (isAlive) {
+          setStreamStatus('running');
+          setPreviewUrl(statusData.whep_url);
+          setSavedStreamId(streamId); // Update saved streamId
+          localStorage.setItem('streamId', streamId); // Save to localStorage
+          console.log('[AdminPanel] Stream is alive, setting status to running');
+        } else {
+          setStreamStatus('stopped');
+          setStreamAlive(false);
+          console.log('[AdminPanel] Stream is not alive, setting status to stopped');
+        }
+      } else {
+        console.log('[AdminPanel] Status check failed:', response.status);
+        setStreamAlive(false);
+        setStreamStatus('stopped');
+      }
+    } catch (error) {
+      console.error('[AdminPanel] Failed to check stream status:', error);
+      setStreamAlive(false);
+      setStreamStatus('stopped');
+    } finally {
+      setCheckingStatus(false);
+    }
+  };
+
+  // Recover stream by manually inputting streamId
+  const handleRecoverStream = async () => {
+    if (!manualStreamId.trim()) {
+      alert('Please enter a streamId');
+      return;
+    }
+
+    setRecoveringStream(true);
+    console.log('[AdminPanel] Recovering stream with streamId:', manualStreamId);
+
+    try {
+      // Check if the stream exists and is alive
+      await checkStreamStatus(manualStreamId.trim());
+      
+      // If we got here, the stream check was successful
+      setManualStreamId(''); // Clear the input field
+      console.log('[AdminPanel] Stream recovery completed');
+    } catch (error) {
+      console.error('[AdminPanel] Failed to recover stream:', error);
+      alert('Failed to recover stream: ' + error.message);
+    } finally {
+      setRecoveringStream(false);
+    }
+  };
+
+  // Load saved streamId from localStorage and check status
+  useEffect(() => {
+    const loadSavedStreamId = () => {
+      const savedId = localStorage.getItem('streamId');
+      if (savedId) {
+        console.log('[AdminPanel] Found saved streamId:', savedId);
+        setSavedStreamId(savedId);
+        checkStreamStatus();
+      } else {
+        console.log('[AdminPanel] No saved streamId found');
+      }
+    };
+
+    loadSavedStreamId();
+  }, []);
 
   // Toggle admin panel overlay
   const toggleAdminPanel = () => {
@@ -179,6 +280,15 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
       if (response.ok) {
         setStreamStatus('running');
         setPreviewUrl(result.whep_url);
+        
+        // Save streamId for future status checks
+        if (result.stream_id) {
+          localStorage.setItem('streamId', result.stream_id);
+          setSavedStreamId(result.stream_id);
+          console.log('[AdminPanel] Saved streamId:', result.stream_id);
+        }
+        
+        setStreamAlive(true);
         onStreamUpdate?.(result);
       } else {
         throw new Error(result.error || 'Failed to start stream');
@@ -204,6 +314,12 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
       if (response.ok) {
         setStreamStatus('stopped');
         setPreviewUrl(null);
+        setStreamAlive(false);
+        
+        // Clear saved streamId when stream is stopped
+        localStorage.removeItem('streamId');
+        setSavedStreamId(null);
+        console.log('[AdminPanel] Cleared saved streamId');
       } else {
         throw new Error('Failed to stop stream');
       }
@@ -256,17 +372,77 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
                 <div className="status-indicator">
                   <div className={`status-dot ${streamStatus === 'running' ? 'status-running' : 'status-stopped'}`}></div>
                   <span className="status-text">{streamStatus}</span>
+                  {checkingStatus && <span style={{ marginLeft: '8px', fontSize: '12px', color: '#666' }}>(checking...)</span>}
                 </div>
                 
-                {previewUrl && (
+                {/* Stream Alive Status */}
+                {savedStreamId && (
+                  <div style={{ marginTop: '8px', fontSize: '12px', color: '#666' }}>
+                    <strong>Gateway Status:</strong> {streamAlive ? '✅ Alive' : '❌ Not Alive'}
+                    <br />
+                    <strong>Saved Stream ID:</strong> {savedStreamId}
+                  </div>
+                )}
+                
+                {/* Control Buttons */}
+                <div style={{ marginTop: '12px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  {savedStreamId && (
+                    <button
+                      className="btn btn-secondary"
+                      onClick={() => checkStreamStatus(savedStreamId)}
+                      disabled={checkingStatus}
+                      style={{ fontSize: '12px', padding: '6px 12px' }}
+                    >
+                      {checkingStatus ? 'Checking...' : '🔄 Check Status'}
+                    </button>
+                  )}
+                  
+                  {previewUrl && (
+                    <button
+                      className="btn btn-secondary"
+                      onClick={handlePreviewStream}
+                      style={{ fontSize: '12px', padding: '6px 12px' }}
+                    >
+                      <Eye size={16} style={{ marginRight: '4px' }} />
+                      Preview
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Manual Stream Recovery */}
+              <div className="admin-section">
+                <h3>Recover Stream</h3>
+                <p style={{ fontSize: '12px', color: '#666', marginBottom: '12px' }}>
+                  Enter a streamId to recover a running stream from the gateway
+                </p>
+                
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
+                  <div style={{ flex: 1 }}>
+                    <label className="form-label" style={{ fontSize: '12px' }}>Stream ID</label>
+                    <input
+                      type="text"
+                      className="input"
+                      placeholder="Enter streamId to recover"
+                      value={manualStreamId}
+                      onChange={(e) => setManualStreamId(e.target.value)}
+                      style={{ fontSize: '14px' }}
+                    />
+                  </div>
                   <button
                     className="btn btn-secondary"
-                    onClick={handlePreviewStream}
-                    style={{ marginTop: '8px' }}
+                    onClick={handleRecoverStream}
+                    disabled={recoveringStream || !manualStreamId.trim()}
+                    style={{ padding: '8px 16px', fontSize: '14px' }}
                   >
-                    <Eye size={16} style={{ marginRight: '8px' }} />
-                    Preview Stream
+                    {recoveringStream ? 'Recovering...' : '🔄 Recover'}
                   </button>
+                </div>
+                
+                {recoveringStream && (
+                  <div style={{ marginTop: '8px', fontSize: '12px', color: '#666' }}>
+                    Checking stream status...
+                  </div>
                 )}
               </div>
 
@@ -371,19 +547,19 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
                 <button
                   className="btn btn-primary"
                   onClick={handleStartStream}
-                  disabled={loading || streamStatus === 'running'}
+                  disabled={loading || streamStatus === 'running' || (savedStreamId && streamAlive)}
                 >
                   <Play size={16} style={{ marginRight: '8px' }} />
-                  {loading ? 'Starting...' : 'Start Stream'}
+                  {loading ? 'Starting...' : savedStreamId && streamAlive ? 'Stream Already Running' : 'Start Stream'}
                 </button>
                 
                 <button
                   className="btn btn-danger"
                   onClick={handleStopStream}
-                  disabled={loading || streamStatus === 'stopped'}
+                  disabled={loading || streamStatus === 'stopped' || (savedStreamId && !streamAlive)}
                 >
                   <Square size={16} style={{ marginRight: '8px' }} />
-                  {loading ? 'Stopping...' : 'Stop Stream'}
+                  {loading ? 'Stopping...' : savedStreamId && !streamAlive ? 'Stream Not Alive' : 'Stop Stream'}
                 </button>
               </div>
             </div>
