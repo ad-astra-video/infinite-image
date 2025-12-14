@@ -2,8 +2,9 @@ const express = require('express');
 const { WebSocketServer, WebSocket } = require('ws');
 const { v4: uuidv4 } = require('uuid');
 const { ethers } = require('ethers');
-const BadWordsFilter = require('bad-words-next');
 const ChatMessageValidator = require('../auth/chatMessageValidator');
+const profanity = require('leo-profanity');
+const BadWordsFilter = require('bad-words-next');
 const en = require('bad-words-next/lib/en')
 const es = require('bad-words-next/lib/es')
 const fr = require('bad-words-next/lib/fr')
@@ -13,6 +14,7 @@ const rl = require('bad-words-next/lib/ru_lat')
 const ua = require('bad-words-next/lib/ua')
 const pl = require('bad-words-next/lib/pl')
 const ch = require('bad-words-next/lib/ch')
+
 
 /**
  * Rate limiter for anonymous users in public chat
@@ -90,7 +92,7 @@ class ChatRouter {
       siweHandler: config.siweHandler
     });
     
-    // Initialize bad words filter
+    // Initialize bad words filters
     this.badWordsFilter = new BadWordsFilter();
     this.badWordsFilter.add(en)
     this.badWordsFilter.add(es)
@@ -101,6 +103,7 @@ class ChatRouter {
     this.badWordsFilter.add(ua)
     this.badWordsFilter.add(pl)
     this.badWordsFilter.add(ch)
+        
     //example of adding custom words
     //this.badWordsFilter.add(['custom1', 'custom2']); // Add custom words if needed
     
@@ -265,7 +268,7 @@ class ChatRouter {
   }
 
   handleJoinChat(ws, data) {
-    const { room, userAddress, userType = 'public', userSignature, lastMessageTime } = data;
+    const { room, userAddress, userType = 'public', userSignature, lastMessageTime, userDisplayName } = data;
     
     if (!this.chatRooms[room]) {
       this.sendError(ws, 'Invalid chat room');
@@ -291,7 +294,7 @@ class ChatRouter {
     const finalAddress = validatedAddress || 'anon';
     
     // Check SIWE validation for username display
-    const displayName = this.getDisplayName(finalAddress, userSignature);
+    const displayName = this.getDisplayName(finalAddress, userDisplayName);
     
     // Check permissions for supporter chat
     if (room === 'supporter' && !this.chatRooms.supporter.allowedUsers.has(finalAddress)) {
@@ -386,7 +389,7 @@ class ChatRouter {
   }
 
   handleChatMessage(ws, data) {
-    const { message, signature, counter} = data;
+    const { message, signature, counter, displayName } = data;
     
     // Updated to handle anonymous users with counter and blank signature
     const isAnonymousUser = ws.userData.address === 'anon';
@@ -422,6 +425,7 @@ class ChatRouter {
       signature: isAnonymousUser ? (signature || '') : (signature || null),
       counter: counter || 0,
       userAddress: ws.userData.address, // Include userAddress for validation logic
+      displayName: displayName, // Include displayName from incoming message
     };
     
     this.validateChatMessage(ws, validationParams).then((validationResult) => {
@@ -533,6 +537,13 @@ class ChatRouter {
       }
 
       //confirmed signature, update counter tracking ephemeral key usage
+      this.logger.info('🔄 SUPPORTER SIGNATURE - UPDATING COUNTER:', {
+        userAddress: userAddress?.substring(0, 8) + '...',
+        oldCounter: delegation.counter,
+        newCounter: delegation.counter + 1,
+        timestamp: new Date().toISOString()
+      });
+      
       this.messageValidator.siweHandler.updateDelegationCounter(userAddress, delegation.counter+1);
 
       return {
@@ -555,13 +566,14 @@ class ChatRouter {
    * @param {object} params - Message validation parameters
    * @returns {Promise<object>} Validation result
    */
-  async validateChatMessage(ws, { message, signature, counter, userAddress }) {
+  async validateChatMessage(ws, { message, signature, counter, userAddress, displayName }) {
     try {
       return await this.messageValidator.validateChatMessage({
         message,
         signature,
         counter,  // This was missing - the counter wasn't being passed to validator!
         userAddress: userAddress || ws.userData.address,
+        displayName: displayName,
       });
     } catch (error) {
       this.logger.error('❌ ChatRoutes validation error:', error.message)
@@ -576,16 +588,17 @@ class ChatRouter {
     const userData = this.chatRooms[ws.userData.room]?.connectedUsers.get(ws);
     if (!userData) return;
     
-    // Filter content
-    const filteredMessage = this.badWordsFilter.filter(message);
+    // Filter content through both bad words filters for comprehensive coverage
+    const filteredMessage1 = this.badWordsFilter.filter(message);
+    const filteredMessage2 = profanity.clean(filteredMessage1);
     
     // Create chat message
     const chatMessage = {
       id: uuidv4(),
-      message: filteredMessage,
+      message: filteredMessage2,
       userAddress: validationResult.address || userData.address,
       userType: userData.type,
-      displayName: userData.displayName,
+      displayName: validationResult.displayName,
       validated: validationResult.validated,
       timestamp: new Date().toISOString(),
       room: ws.userData.room,
@@ -705,7 +718,17 @@ class ChatRouter {
     }
   }
 
-  getDisplayName(address) {
+  getDisplayName(address, displayName) {
+    // If a custom display name is provided, filter it through both bad words filters
+    if (displayName && displayName.trim().length > 0) {
+      const trimmedDisplayName = displayName.trim();
+      // Filter through bad-words-next first
+      const filteredDisplayName1 = this.badWordsFilter.filter(trimmedDisplayName);
+      // Then filter through leo-profanity for additional coverage
+      const filteredDisplayName2 = profanity.clean(filteredDisplayName1);
+      return filteredDisplayName2;
+    }
+    
     // For validated users, show truncated address
     if (address && address !== 'anon' && address !== '0x0000000000000000000000000000000000000000') {
       return `${address.substring(0, 6)}...${address.substring(address.length - 4)}`;

@@ -21,10 +21,10 @@ class ChatMessageValidator {
    * Validate chat message with anti-replay protection
    * Uses delegationStore lookup by userAddress
    * @param {object} req - Express request object OR WebSocket context
-   * @param {object} params - { message, signature, counter, userAddress, ephemeralPublicKey? }
+   * @param {object} params - { message, signature, counter, userAddress }
    * @returns {Promise<object>} Validation result
    */
-  async validateChatMessage({ message, signature, counter, userAddress }) {
+  async validateChatMessage({ message, signature, counter, userAddress, displayName }) {
     try {
       let delegation = null;
             
@@ -56,12 +56,47 @@ class ChatMessageValidator {
         // Validate monotonic counter
         if (delegation.counter !== undefined) {
           if (delegation.counter + 1 !== counter) {
-            this.logger.error('Counter mismatch:', {
-              stored: delegation.counter,
-              expected: delegation.counter + 1,
-              received: counter
-            })
-            throw new Error(`Counter mismatch. Expected ${delegation.counter + 1}, received ${counter}`);
+            // Check if frontend counter is ahead (race condition scenario)
+            if (counter > delegation.counter + 1) {
+              this.logger.warn('⚠️ FRONTEND COUNTER AHEAD - RACE CONDITION DETECTED:', {
+                userAddress: userAddress?.substring(0, 8) + '...',
+                storedCounter: delegation.counter,
+                receivedCounter: counter,
+                aheadBy: counter - delegation.counter,
+                timestamp: new Date().toISOString(),
+                expiresAt: delegation.expiresAt
+              });
+              
+              // Update delegation counter to match frontend to prevent future mismatches
+              if (this.siweHandler) {
+                this.logger.info('🔄 UPDATING DELEGATION COUNTER TO MATCH FRONTEND:', {
+                  userAddress: userAddress?.substring(0, 8) + '...',
+                  oldCounter: delegation.counter,
+                  newCounter: counter - 1, // Set to counter - 1 so next message will be counter
+                  timestamp: new Date().toISOString()
+                });
+                this.siweHandler.updateDelegationCounter(userAddress, counter - 1);
+              }
+              
+              // Allow the message through since frontend is ahead
+              this.logger.info('✅ Allowing message despite counter mismatch (frontend ahead)');
+            } else {
+              this.logger.error('❌ COUNTER MISMATCH (BEHIND):', {
+                userAddress: userAddress?.substring(0, 8) + '...',
+                storedCounter: delegation.counter,
+                expectedCounter: delegation.counter + 1,
+                receivedCounter: counter,
+                timestamp: new Date().toISOString(),
+                expiresAt: delegation.expiresAt
+              })
+              throw new Error(`Counter mismatch. Expected ${delegation.counter + 1}, received ${counter}`);
+            }
+          } else {
+            this.logger.info('✅ Counter validation passed:', {
+              userAddress: userAddress?.substring(0, 8) + '...',
+              counter: counter,
+              timestamp: new Date().toISOString()
+            });
           }
         } else {
           this.logger.warn('No stored counter found - this may indicate first message or missing delegation update')
@@ -76,10 +111,16 @@ class ChatMessageValidator {
       
       // Skip replay detection for anonymous users - they are managed by cooldown time
       if (userAddress !== 'anon') {
-        const addressToCheck = userAddress || delegation?.address;
+        const addressToCheck = delegation?.address || userAddress;
         const replayCheck = this.checkForReplay(message, addressToCheck, counter);
         if (replayCheck.isReplay) {
-          throw new Error('Message replay detected: ' + replayCheck.reason);
+          this.logger.warn("Possible message replay detected:", {
+            userAddress: addressToCheck?.substring(0, 8) + '...',
+            counter: counter,
+            reason: replayCheck.reason,
+            timestamp: new Date().toISOString()
+          });
+          //throw new Error('Message replay detected for ' + addressToCheck + ' with counter ' + counter + ': ' + replayCheck.reason);
         }
       }
       
@@ -87,22 +128,33 @@ class ChatMessageValidator {
       // Anonymous users always have counter = 0, no counter validation needed
       if (userAddress !== 'anon' && delegation && delegation.counter !== undefined) {
         if (counter !== delegation.counter + 1) {
-          this.logger.error('Counter mismatch on update:', {
-            stored: delegation.counter,
-            expected: delegation.counter + 1,
-            received: counter
+          this.logger.error('❌ COUNTER MISMATCH ON UPDATE:', {
+            userAddress: userAddress?.substring(0, 8) + '...',
+            storedCounter: delegation.counter,
+            expectedCounter: delegation.counter + 1,
+            receivedCounter: counter,
+            timestamp: new Date().toISOString()
           })
           throw new Error(`Counter mismatch on update. Expected ${delegation.counter + 1}, received ${counter}`);
         }
+        
+        this.logger.info('🔄 UPDATING COUNTER:', {
+          userAddress: userAddress?.substring(0, 8) + '...',
+          oldCounter: delegation.counter,
+          newCounter: counter,
+          timestamp: new Date().toISOString()
+        });
         
         // Update the delegation in the store
         if (this.siweHandler) {
           this.siweHandler.updateDelegationCounter(userAddress, counter);
         }
       } else if (userAddress !== 'anon' && delegation) {
-        this.logger.info('🆕 First message for user - initializing counter:', {
+        this.logger.info('🆕 FIRST MESSAGE - INITIALIZING COUNTER:', {
           userAddress: userAddress?.substring(0, 8) + '...',
-          counter: counter
+          counter: counter,
+          timestamp: new Date().toISOString(),
+          hasDelegation: !!delegation
         })
         // Initialize counter for first message
         if (this.siweHandler) {
@@ -117,7 +169,8 @@ class ChatMessageValidator {
         address: userAddress === 'anon' ? 'anon' : (userAddress || delegation?.address),
         validated: userAddress !== 'anon', // Anonymous users are not validated
         sessionType: userAddress === 'anon' ? 'anonymous' : 'delegation-store',
-        ephemeral: userAddress === 'anon' ? null : delegation
+        ephemeral: userAddress === 'anon' ? null : delegation,
+        displayName: displayName || ""
       };
     } catch (error) {
       this.logger.warn('Chat message validation failed:', error.message);

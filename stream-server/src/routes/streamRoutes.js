@@ -384,7 +384,7 @@ class StreamRouter {
       
       if (req) {
         // Direct request-based stream start (from admin panel)
-        const { height, width, rtmp_output, stream_key, playback_url, iframe_html, ...dynamicParams } = req.body;
+        const { height, width, rtmp_output, stream_key, playback_url, iframe_html, capability_name, ...dynamicParams } = req.body;
         
         // Required fields validation
         if (!height || !width) {
@@ -448,7 +448,7 @@ class StreamRouter {
         
         // Create livepeer header for direct requests
         livepeerHdr = {
-          capability: dynamicParams["capability_name"],
+          capability: capability_name,
           request: JSON.stringify({}),
           parameters: JSON.stringify(reqParams),
           timeout_seconds: 120

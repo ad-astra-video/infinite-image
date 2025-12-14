@@ -193,16 +193,36 @@ class SIWEWithEphemeralHandler {
     // Always normalize address to lowercase for consistent storage
     const normalizedAddress = (address || '').toLowerCase();
     
+    // Check if this is a new ephemeral key for an existing address
+    const existingDelegation = this.delegationStore.get(normalizedAddress);
+    const isNewEphemeralKey = existingDelegation &&
+                           existingDelegation.ephemeralPublicKey !== delegation.ephemeralPublicKey;
+    
     const delegationData = {
       address: normalizedAddress,
       ephemeralPublicKey: delegation.ephemeralPublicKey?.toLowerCase() || delegation.ephemeralPublicKey,
       expiresAt: delegation.expiresAt,
-      counter: delegation.counter,
+      counter: isNewEphemeralKey ? 0 : delegation.counter, // Reset counter for new ephemeral key
       createdAt: Date.now(),
       lastUsed: Date.now()
     };
 
+    this.logger.info('🆕 STORING NEW DELEGATION:', {
+      address: normalizedAddress.substring(0, 8) + '...',
+      oldEphemeralKey: existingDelegation?.ephemeralPublicKey?.substring(0, 8) + '...',
+      newEphemeralKey: delegation.ephemeralPublicKey?.substring(0, 8) + '...',
+      isNewEphemeralKey: isNewEphemeralKey,
+      counter: delegationData.counter,
+      expiresAt: delegation.expiresAt,
+      timestamp: new Date().toISOString()
+    });
+    
     this.delegationStore.set(normalizedAddress, delegationData);
+    
+    this.logger.info('📊 Delegation store status:', {
+      totalDelegations: this.delegationStore.size,
+      storeKeys: Array.from(this.delegationStore.keys()).map(addr => addr.substring(0, 8) + '...')
+    });
   }
 
   /**
@@ -215,18 +235,19 @@ class SIWEWithEphemeralHandler {
     const normalizedAddress = (userAddress || '').toLowerCase();
     
     const delegation = this.delegationStore.get(normalizedAddress);
+    
     if (!delegation) {
-      this.logger.warn('No delegation found for address:', normalizedAddress);
+      this.logger.warn('No delegation found for address:', normalizedAddress.substring(0, 8) + '...');
+      this.logger.warn('Available delegations count:', this.delegationStore.size);
       return null;
     }
 
     // Check expiration
     if (Date.now() > new Date(delegation.expiresAt).getTime()) {
-      this.logger.warn('Delegation expired for address:', normalizedAddress);
       this.delegationStore.delete(normalizedAddress);
       return null;
     }
-
+    
     return delegation;
   }
 
@@ -306,6 +327,7 @@ class SIWEWithEphemeralHandler {
     try {
       const address = userAddress.toLowerCase();
       const delegation = this.delegationStore.get(address);
+      
       if (delegation) {
         delegation.counter = newCounter;
         delegation.lastUsed = Date.now();
@@ -313,6 +335,7 @@ class SIWEWithEphemeralHandler {
         return true;
       } else {
         this.logger.warn('No delegation found for address:', address.substring(0, 8) + '...')
+        this.logger.warn('Available delegations:', Array.from(this.delegationStore.keys()).map(addr => addr.substring(0, 8) + '...'))
       }
       return false;
     } catch (error) {
