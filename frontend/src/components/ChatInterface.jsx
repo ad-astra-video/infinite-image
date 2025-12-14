@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { Send, MessageCircle, Users, Shield, Crown, Lock, Clock, ChevronUp, ChevronDown } from 'lucide-react'
+import { Send, MessageCircle, Users, Shield, Crown, Lock, Clock, ChevronUp, ChevronDown, Settings } from 'lucide-react'
 import { useWallet } from './WalletConnect'
 import { API_BASE } from '../utils/apiConfig'
+import DisplayNameModal from './DisplayNameModal'
 
 function ChatInterface() {
   const wallet = useWallet()
@@ -23,6 +24,7 @@ function ChatInterface() {
   const [showChatInput, setShowChatInput] = useState(true)
   const [isMobileChatExpanded, setIsMobileChatExpanded] = useState(false)
   const [unreadMessageCount, setUnreadMessageCount] = useState(0)
+  const [showDisplayNameModal, setShowDisplayNameModal] = useState(false)
   const messagesEndRef = useRef(null)
   const messageInputRef = useRef(null)
   const prevRoomRef = useRef(null)
@@ -366,7 +368,8 @@ function ChatInterface() {
                       userAddress: wallet.address || 'anon',
                       userType: 'supporter',
                       userSignature: '',
-                      lastMessageTime: lastMessageTime || null
+                      lastMessageTime: lastMessageTime || null,
+                      userDisplayName: localStorage.getItem('userDisplayName') || null
                     }))
                     
                     // Remember that we're now in supporter room
@@ -493,7 +496,8 @@ function ChatInterface() {
         userAddress: wallet.address || 'anon',
         userType,
         userSignature: '',
-        lastMessageTime: lastMessageTime || null
+        lastMessageTime: lastMessageTime || null,
+        userDisplayName: localStorage.getItem('userDisplayName') || null
       }))
 
       // remember the room we've joined so we can leave it later
@@ -538,7 +542,8 @@ function ChatInterface() {
           userAddress: wallet.address || 'anon',
           userType: 'supporter',
           userSignature: '',
-          lastMessageTime: lastMessageTime || null
+          lastMessageTime: lastMessageTime || null,
+          userDisplayName: localStorage.getItem('userDisplayName') || null
         }))
         prevRoomRef.current = 'supporter'
       }
@@ -568,7 +573,8 @@ function ChatInterface() {
         room: 'public',
         message: newMessage,
         messageType: 'public',
-        userAddress: wallet.address || 'anon'
+        userAddress: wallet.address || 'anon',
+        displayName: localStorage.getItem('userDisplayName') || null
       }
 
       // Add ephemeral signature if wallet supports it
@@ -627,7 +633,8 @@ function ChatInterface() {
         type: 'chat_message',
         room: 'supporter',
         message: supporterChatMessage,
-        messageType: 'supporter'
+        messageType: 'supporter',
+        displayName: localStorage.getItem('userDisplayName') || null
       }
 
       // Add ephemeral signature if wallet supports it
@@ -766,6 +773,14 @@ function ChatInterface() {
               title={connected ? 'Connected' : 'Disconnected'}
               aria-hidden="true"
             />
+            {/* Settings gear for display name */}
+            <button
+              className="settings-gear"
+              onClick={() => setShowDisplayNameModal(true)}
+              title="Display Name Settings"
+            >
+              <Settings size={16} />
+            </button>
             {/* Hide expand/hide button on larger screens */}
             {!isMobile() && (
               <button
@@ -832,7 +847,7 @@ function ChatInterface() {
                 <div className="message-header">
                   <span className="sender">
                     {(mappedMessage.senderType === 'supporter' || isTipMessage) && <Crown size={14} />}
-                    {truncateAddress(mappedMessage.sender)}
+                    {mappedMessage.displayName || truncateAddress(mappedMessage.sender)}
                     {isOwnMessage && <span className="you-badge">You</span>}
                   </span>
                 </div>
@@ -863,7 +878,7 @@ function ChatInterface() {
                 <div className="message-header">
                   <span className="sender">
                     {mappedMessage.senderType === 'supporter' && <Crown size={14} />}
-                    {truncateAddress(mappedMessage.sender)}
+                    {mappedMessage.displayName || truncateAddress(mappedMessage.sender)}
                     {isOwnMessage && <span className="you-badge">You</span>}
                   </span>
                 </div>
@@ -1116,6 +1131,14 @@ function ChatInterface() {
           </div>
         </div>
       )}
+      
+      {/* Display Name Modal */}
+      <DisplayNameModal
+        isOpen={showDisplayNameModal}
+        onClose={() => setShowDisplayNameModal(false)}
+        isAuthenticated={wallet.enhancedAuth?.authenticated}
+        currentDisplayName={localStorage.getItem('userDisplayName')}
+      />
     </>
   )
 }

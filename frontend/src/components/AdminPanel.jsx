@@ -8,9 +8,7 @@ import { Toast, ToastContainer } from './Toast';
  * Admin Panel Component
  * Provides broadcasting stream management for authorized wallets
  */
-const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
-  console.log('[AdminPanel] Component rendered/updated, isOpen:', isOpen);
-  
+const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => { 
   const { address, isConnected, enhancedAuth } = useWallet();
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -82,25 +80,11 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
   // Check if user is admin (matches CREATOR_ADDRESS)
   // Only check after authentication is verified
   useEffect(() => {
-    const checkAdminStatus = async () => {
-      console.log('[AdminPanel] Checking admin status...', {
-        isConnected,
-        address,
-        enhancedAuth,
-        authenticated: enhancedAuth?.authenticated
-      });
-      
+    const checkAdminStatus = async () => {      
       // Only proceed if wallet is connected and authentication is verified
       if (!isConnected || !address || !enhancedAuth?.authenticated) {
-        console.log('[AdminPanel] Skipping admin check - missing requirements:', {
-          isConnected,
-          address,
-          authenticated: enhancedAuth?.authenticated
-        });
         return;
       }
-      
-      console.log('[AdminPanel] Making admin check request for address:', address);
       
       try {
         const response = await fetch(`${API_BASE}/api/stream/admin/check`, {
@@ -108,16 +92,11 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ address })
         });
-        
-        console.log('[AdminPanel] Admin check response status:', response.status);
-        
+
         const data = await response.json();
-        console.log('[AdminPanel] Admin check response data:', data);
         
         setIsAdmin(data.isAdmin);
-        console.log('[AdminPanel] Set isAdmin to:', data.isAdmin);
       } catch (error) {
-        console.error('[AdminPanel] Failed to check admin status:', error);
         setIsAdmin(false);
       }
     };
@@ -128,12 +107,10 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
   // Check stream status from saved streamId
   const checkStreamStatus = async (streamId = savedStreamId) => {
     if (!streamId) {
-      console.log('[AdminPanel] No streamId to check status for');
       return;
     }
 
     setCheckingStatus(true);
-    console.log('[AdminPanel] Checking stream status for streamId:', streamId);
 
     try {
       // Call stream-server endpoint instead of gateway directly
@@ -143,11 +120,8 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
         body: JSON.stringify({ streamId })
       });
 
-      console.log('[AdminPanel] Status response status:', response.status);
-
       if (response.ok) {
         const statusData = await response.json();
-        console.log('[AdminPanel] Status response data:', statusData);
         
         // Check if stream is alive (has whep_url)
         const isAlive = statusData.alive;
@@ -160,9 +134,7 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
           localStorage.setItem('streamId', streamId); // Save to localStorage
           
           // If settings are available, populate the form fields
-          if (statusData.settings) {
-            console.log('[AdminPanel] Populating form fields with saved settings:', statusData.settings);
-            
+          if (statusData.settings) {           
             // Update required fields
             setRequiredFields({
               height: statusData.settings.height || '1024',
@@ -189,20 +161,15 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
             ...statusData
           };
           onStreamUpdate?.(streamData);
-          
-          console.log('[AdminPanel] Stream is alive, setting status to running');
         } else {
           setStreamStatus('stopped');
           setStreamAlive(false);
-          console.log('[AdminPanel] Stream is not alive, setting status to stopped');
         }
       } else {
-        console.log('[AdminPanel] Status check failed:', response.status);
         setStreamAlive(false);
         setStreamStatus('stopped');
       }
     } catch (error) {
-      console.error('[AdminPanel] Failed to check stream status:', error);
       setStreamAlive(false);
       setStreamStatus('stopped');
     } finally {
@@ -218,7 +185,6 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
     }
 
     setRecoveringStream(true);
-    console.log('[AdminPanel] Recovering stream with streamId:', manualStreamId);
 
     try {
       // Check if the stream exists and is alive
@@ -226,10 +192,8 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
       
       // If we got here, the stream check was successful
       setManualStreamId(''); // Clear the input field
-      console.log('[AdminPanel] Stream recovery completed');
       showNotification('Stream recovered successfully', 'success');
     } catch (error) {
-      console.error('[AdminPanel] Failed to recover stream:', error);
       showNotification('Failed to recover stream: ' + error.message, 'error');
     } finally {
       setRecoveringStream(false);
@@ -242,7 +206,6 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
       const loadSavedStreamId = () => {
         const savedId = localStorage.getItem('streamId');
         if (savedId) {
-          console.log('[AdminPanel] Found saved streamId:', savedId);
           setSavedStreamId(savedId);
           checkStreamStatus(savedId); // Pass streamId directly instead of relying on state
         } else {
@@ -256,7 +219,6 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
 
   // Toggle admin panel overlay
   const toggleAdminPanel = () => {
-    console.log('[AdminPanel] Toggle button clicked, current isOpen:', isOpen);
     onAdminButtonClick?.(!isOpen);
   };
 
@@ -351,6 +313,7 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
         stream_key: requiredFields.stream_key.trim(),
         playback_url: requiredFields.playback_url.trim(),
         iframe_html: requiredFields.iframe_html,
+        capability_name: requiredFields.capability_name,
         
         // Dynamic parameters
         ...dynamicParams.reduce((acc, param) => {
@@ -378,7 +341,6 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
         if (streamId) {
           localStorage.setItem('streamId', streamId);
           setSavedStreamId(streamId);
-          console.log('[AdminPanel] Saved streamId:', streamId);
         }
         
         setStreamAlive(true);
@@ -422,7 +384,6 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
         // Clear saved streamId when stream is stopped
         localStorage.removeItem('streamId');
         setSavedStreamId(null);
-        console.log('[AdminPanel] Cleared saved streamId');
         showNotification('Stream stopped successfully', 'success');
       } else {
         throw new Error('Failed to stop stream');
@@ -455,9 +416,7 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
       });
       
       if (response.ok) {
-        const result = await response.json();
-        console.log('[AdminPanel] Stream updated successfully');
-        
+        const result = await response.json();       
         // Update VideoPlayer with new iframe_html if it was changed
         if (result.stream?.iframe_html !== undefined) {
           const currentStreamData = {
@@ -487,14 +446,9 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
   };
 
   // Only render admin panel when authenticated as admin
-  console.log('[AdminPanel] Render check - isAdmin:', isAdmin, 'isOpen:', isOpen);
-  
   if (!isAdmin) {
-    console.log('[AdminPanel] Not rendering admin panel - user is not admin');
     return null;
   }
-  
-  console.log('[AdminPanel] Rendering admin modal - user is admin, isOpen:', isOpen);
   
   return (
     <>
@@ -503,13 +457,13 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
         <div className="admin-overlay">
           <div className="admin-modal">
             <div className="admin-header">
-              <h2>🎬 Stream Admin Panel</h2>
+              <h2>Stream Admin Panel</h2>
               <button
                 className="control-btn glass"
                 onClick={toggleAdminPanel}
                 style={{ padding: '8px 12px', minWidth: 'auto' }}
               >
-                <Settings2 size={16} />
+                <X size={16} />
               </button>
             </div>
             

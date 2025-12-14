@@ -19,7 +19,7 @@ class EphemeralKeyManager {
    * @returns {Promise<string>} Public key of ephemeral wallet
    */
   async generateEphemeralWallet() {
-    try {
+    try {      
       // Generate random ephemeral wallet
       const wallet = Wallet.createRandom();
       this.ephemeralWallet = {
@@ -69,7 +69,7 @@ class EphemeralKeyManager {
       if (!this.isInitialized) {
         throw new Error('Ephemeral key manager not initialized');
       }
-
+      
       // Decrypt private key for signing
       const decryptedBytes = await this.decryptPrivateKey();
       
@@ -88,6 +88,7 @@ class EphemeralKeyManager {
       const signature = await signingWallet.signMessage(message);
       
       // Increment counter
+      const oldCounter = this.counter;
       this.counter += 1;
 
       return { signature, counter: this.counter };

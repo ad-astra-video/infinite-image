@@ -25,22 +25,12 @@ function useAdminCheck(address, isConnected, enhancedAuth) {
   const [isAdmin, setIsAdmin] = useState(false);
   
   useEffect(() => {
-    const checkAdminStatus = async () => {
-      console.log('[VideoPlayer] Checking admin status for button...', {
-        isConnected,
-        address,
-        enhancedAuth,
-        authenticated: enhancedAuth?.authenticated
-      });
-      
+    const checkAdminStatus = async () => {      
       // Only proceed if wallet is connected and authentication is verified
       if (!isConnected || !address || !enhancedAuth?.authenticated) {
-        console.log('[VideoPlayer] Skipping admin check for button - missing requirements');
         setIsAdmin(false);
         return;
       }
-      
-      console.log('[VideoPlayer] Making admin check request for button, address:', address);
       
       try {
         const response = await fetch(`${API_BASE}/api/stream/admin/check`, {
@@ -49,15 +39,10 @@ function useAdminCheck(address, isConnected, enhancedAuth) {
           body: JSON.stringify({ address })
         });
         
-        console.log('[VideoPlayer] Admin check response status:', response.status);
-        
         const data = await response.json();
-        console.log('[VideoPlayer] Admin check response data:', data);
         
         setIsAdmin(data.isAdmin);
-        console.log('[VideoPlayer] Set isAdmin for button to:', data.isAdmin);
       } catch (error) {
-        console.error('[VideoPlayer] Failed to check admin status for button:', error);
         setIsAdmin(false);
       }
     };
@@ -132,7 +117,6 @@ function VideoPlayer({
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (!document.hidden) {
-        console.log('[VideoPlayer] Page became visible, refreshing stream data...');
         fetchStreamUrl();
       }
     };
@@ -147,7 +131,6 @@ function VideoPlayer({
   // Periodic refresh of stream data every 30 seconds
   useEffect(() => {
     const interval = setInterval(() => {
-      console.log('[VideoPlayer] Periodic refresh of stream data...');
       fetchStreamUrl();
     }, 30000); // 30 seconds
 
@@ -200,14 +183,11 @@ function VideoPlayer({
   }, [])
 
   const fetchStreamUrl = async () => {
-    try {
-      console.log('[VideoPlayer] Fetching fresh stream data from server...');
-      
+    try {      
       const response = await fetch(`${API_BASE}/api/stream/url`);
       
       if (response.ok) {
         const data = await response.json();
-        console.log('[VideoPlayer] Fresh stream data received:', data);
         
         // Update streamData with fresh data from server
         if (onStreamUpdate && data.stream) {
@@ -222,7 +202,6 @@ function VideoPlayer({
           setStreamStatus('not_running');
         }
       } else {
-        console.error('[VideoPlayer] Failed to fetch stream URL:', response.status, response.statusText);
         setStreamStatus('error');
       }
     } catch (error) {
@@ -233,7 +212,6 @@ function VideoPlayer({
 
   const setupWhepConnection = async () => {
     try {
-      console.log('[VideoPlayer] Setting up WHEP connection for stream:', streamData?.stream_id);
       
       const response = await fetch(`${API_BASE}/api/stream/setup-whep`, {
         method: 'POST',
@@ -247,18 +225,15 @@ function VideoPlayer({
 
       if (response.ok) {
         const data = await response.json();
-        console.log('[VideoPlayer] WHEP connection setup successful:', data);
         
         if (data.whep_url) {
           setStreamUrl(data.whep_url);
           setStreamStatus('running');
         }
       } else {
-        console.error('[VideoPlayer] WHEP setup failed:', response.status, response.statusText);
         setStreamStatus('error');
       }
     } catch (error) {
-      console.error('[VideoPlayer] WHEP connection setup failed:', error);
       setStreamStatus('error');
     }
   }
@@ -463,7 +438,6 @@ function VideoPlayer({
               </p>
               <button
                 onClick={() => {
-                  console.log('[VideoPlayer] Retry button clicked, refreshing stream data...');
                   fetchStreamUrl();
                 }}
                 className="youtube-retry-btn"
@@ -786,7 +760,7 @@ function VideoPlayer({
               }}
               disabled={loading}
             >
-              <Settings2 size={16} />
+              <Settings2 size={20} />
               <span>Admin Panel</span>
               <ChevronDown size={16} />
             </button>
