@@ -767,7 +767,6 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
                         addDynamicParam();
                       }
                     }}
-                    disabled={streamStatus === 'running' && streamAlive}
                   >
                     <Plus size={16} style={{ marginRight: '8px' }} />
                     Add Parameter
@@ -789,7 +788,6 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
                             updateDynamicParam(index, 'key', e.target.value);
                           }
                         }}
-                        disabled={streamStatus === 'running' && streamAlive}
                       />
                       <input
                         className="input"
@@ -803,7 +801,6 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
                             updateDynamicParam(index, 'value', e.target.value);
                           }
                         }}
-                        disabled={streamStatus === 'running' && streamAlive}
                       />
                       <button
                         className="btn btn-secondary"
@@ -815,7 +812,7 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
                             removeDynamicParam(index);
                           }
                         }}
-                        disabled={dynamicParams.length <= 1 || (streamStatus === 'running' && streamAlive)}
+                        disabled={dynamicParams.length <= 1}
                       >
                         <Minus size={16} />
                       </button>
