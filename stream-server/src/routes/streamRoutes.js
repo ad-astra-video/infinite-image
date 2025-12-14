@@ -431,6 +431,7 @@ class StreamRouter {
           stream_key,
           playback_url,
           iframe_html: sanitizedIframeHtml,
+          capability_name,
           dynamicParams
         };
         
@@ -469,6 +470,7 @@ class StreamRouter {
           stream_key: '',
           playback_url: '',
           iframe_html: '',
+          capability_name: startReq.header?.capability || 'image-generation',
           dynamicParams: startReq.parameters || {}
         };
       }
@@ -522,6 +524,7 @@ class StreamRouter {
     const { ...dynamicParams } = req;
     
     // EXCLUDE required fields - allow all other parameters to be updated
+    // do not pull out capability_name, need it for livepeer header
     const requiredFields = ['height', 'width', 'rtmp_output', 'stream_key', 'iframe_html'];
     const allowedParams = Object.keys(req).filter(key => !requiredFields.includes(key));
     
@@ -559,8 +562,15 @@ class StreamRouter {
     }
     
     // Create livepeer header for direct requests
+    // Ensure capability_name is always available - fallback to stored value if not provided
+    let capabilityName = dynamicParams["capability_name"];
+    if (!capabilityName && this.streamId) {
+      const storedSettings = this.streamSettings.get(this.streamId) || {};
+      capabilityName = storedSettings.capability_name || 'image-generation';
+    }
+    
     const livepeerHdr = {
-      capability: dynamicParams["capability_name"],
+      capability: capabilityName,
       request: JSON.stringify({"stream_id": this.streamId}),
       parameters: JSON.stringify({}),
       timeout_seconds: 60

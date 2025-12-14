@@ -137,9 +137,12 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
           if (statusData.settings) {           
             // Update required fields
             setRequiredFields({
+              capability_name: statusData.settings.capability_name || 'image-generation',
               height: statusData.settings.height || '1024',
               width: statusData.settings.width || '1024',
               rtmp_url: statusData.settings.rtmp_output || '',
+              stream_key: statusData.settings.stream_key || '',
+              playback_url: statusData.settings.playback_url || '',
               iframe_html: statusData.settings.iframe_html || ''
             });
             
@@ -403,6 +406,7 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
     try {
       // Build update request with current form values
       const updateData = {
+        capability_name: requiredFields.capability_name,
         ...dynamicParams.reduce((obj, param) => {
           obj[param.key] = param.value;
           return obj;
@@ -572,6 +576,12 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
                       if (streamStatus === 'running' && streamAlive) {
                         setShowRequiredFieldsHelp(true);
                         setTimeout(() => setShowRequiredFieldsHelp(false), 3000);
+                        // Don't allow clearing capability_name when stream is running
+                        if (!e.target.value.trim()) {
+                          showNotification('Capability name cannot be cleared while stream is running', 'warning');
+                          return;
+                        }
+                        updateRequiredField('capability_name', e.target.value);
                       } else {
                         updateRequiredField('capability_name', e.target.value);
                       }
@@ -759,14 +769,7 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
                   <h3>Dynamic Parameters</h3>
                   <button
                     className="btn btn-secondary"
-                    onClick={() => {
-                      if (streamStatus === 'running' && streamAlive) {
-                        setShowRequiredFieldsHelp(true);
-                        setTimeout(() => setShowRequiredFieldsHelp(false), 3000);
-                      } else {
-                        addDynamicParam();
-                      }
-                    }}
+                    onClick={addDynamicParam}
                   >
                     <Plus size={16} style={{ marginRight: '8px' }} />
                     Add Parameter
@@ -780,38 +783,17 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
                         className="input"
                         placeholder="Parameter name"
                         value={param.key}
-                        onChange={(e) => {
-                          if (streamStatus === 'running' && streamAlive) {
-                            setShowRequiredFieldsHelp(true);
-                            setTimeout(() => setShowRequiredFieldsHelp(false), 3000);
-                          } else {
-                            updateDynamicParam(index, 'key', e.target.value);
-                          }
-                        }}
+                        onChange={(e) => updateDynamicParam(index, 'key', e.target.value)}
                       />
                       <input
                         className="input"
                         placeholder="Parameter value"
                         value={param.value}
-                        onChange={(e) => {
-                          if (streamStatus === 'running' && streamAlive) {
-                            setShowRequiredFieldsHelp(true);
-                            setTimeout(() => setShowRequiredFieldsHelp(false), 3000);
-                          } else {
-                            updateDynamicParam(index, 'value', e.target.value);
-                          }
-                        }}
+                        onChange={(e) => updateDynamicParam(index, 'value', e.target.value)}
                       />
                       <button
                         className="btn btn-secondary"
-                        onClick={() => {
-                          if (streamStatus === 'running' && streamAlive) {
-                            setShowRequiredFieldsHelp(true);
-                            setTimeout(() => setShowRequiredFieldsHelp(false), 3000);
-                          } else {
-                            removeDynamicParam(index);
-                          }
-                        }}
+                        onClick={() => removeDynamicParam(index)}
                         disabled={dynamicParams.length <= 1}
                       >
                         <Minus size={16} />
