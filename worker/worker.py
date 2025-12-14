@@ -216,21 +216,21 @@ class InfiniteFlux2StreamHandlers:
             # Optimize pipeline for SPEED
             from torchao.quantization import quantize_, PerRow, Float8DynamicActivationFloat8WeightConfig
             quantize_(self.pipe.transformer, Float8DynamicActivationFloat8WeightConfig(granularity=PerRow()))
-            #run warmup to quantize
-            #self.pipe(prompt="a cat", height=2048, width=2048, guidance_scale=3.5, num_inference_steps=28)
-            #compile
-            #self.pipe.transformer.fuse_qkv_projections()   #does not work with torchao fp8
-            #self.pipe.vae.fuse_qkv_projections()
-            self.pipe.transformer.to(memory_format=torch.channels_last)
-            #self.pipe.vae.to(memory_format=torch.channels_last)
-            self.pipe.transformer = torch.compile(
-                self.pipe.transformer,
-                mode="default"
-            )
-            #self.pipe.vae.decode = torch.compile(
-            #    self.pipe.vae.decode,
-            #    mode="default"
-            #)
+
+            if os.getenv("TORCH_COMPILE",""):
+                #self.pipe.transformer.fuse_qkv_projections()   #does not work with torchao fp8
+                self.pipe.transformer.to(memory_format=torch.channels_last)
+                self.pipe.transformer = torch.compile(
+                    self.pipe.transformer,
+                    mode="default"
+                )
+                #self.pipe.vae.fuse_qkv_projections()
+                #self.pipe.vae.to(memory_format=torch.channels_last)
+                #self.pipe.vae.decode = torch.compile(
+                #    self.pipe.vae.decode,
+                #    mode="default"
+                #)
+
             #run warmup
             self.pipe(prompt="a cat", height=self.cfg.height, width=self.cfg.width, guidance_scale=4, num_inference_steps=28)
 
