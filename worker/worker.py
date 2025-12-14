@@ -21,7 +21,9 @@ import PIL
 
 import torch
 from diffusers import Flux2Pipeline
-from transformers import Mistral3ForConditionalGeneration, AutoProcessor, BitsAndBytesConfig
+from transformers import Mistral3ForConditionalGeneration, BitsAndBytesConfig
+from mistral_common.protocol.instruct.request import ChatCompletionRequest
+from mistral_common.tokens.tokenizers.mistral import MistralTokenizer
 
 from diffusers.utils import load_image
 from huggingface_hub import snapshot_download
@@ -78,7 +80,7 @@ class InfiniteFlux2StreamHandlers:
         # Runner for direct inference
         self.pipe = None
         self.text_encoder = None
-        self.text_processor = None
+        self.text_tokenizer = None
         self.runner_ready = False
         
         # Inference locking mechanism with callback-based interruption
@@ -126,15 +128,33 @@ class InfiniteFlux2StreamHandlers:
 
         Guide to good prompt: {self.cfg.prompt_guidance_doc}
         Original prompt:
-        "{prompt}"
         """.strip()
+        
+        messages = [
+            {"role": "system", "content": instruction},
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": prompt,
+                    },
+                ],
+            },
+        ]
+        tokenized = self.text_tokenizer.encode_chat_completion(ChatCompletionRequest(messages=messages))
+        input_ids = torch.tensor([tokenized.tokens]).to("cuda")
+        attention_mask = torch.ones_like(input_ids)
 
-        return instruction
+        output = self.text_encoder.generate(input_ids=input_ids, attention_mask=attention_mask, max_new_tokens=32768)[0]
+
+        return self.text_tokenizer.decode(output[len(tokenized.tokens) :])
     
     async def create_placeholder_frame(self):
         #create placeholder image for frames until first generation completed
             height = self.cfg.height
             width = self.cfg.width
+
             img = Image.new("RGB", (width, height))
 
             # Calculate square size to create a reasonable checkerboard pattern
@@ -184,7 +204,8 @@ class InfiniteFlux2StreamHandlers:
                 repo_id, subfolder="text_encoder", dtype=torch.bfloat16, quantization_config=quantization_config,
                 device_map="cuda"
             )
-            self.text_processor = AutoProcessor.from_pretrained(repo_id, subfolder="text_encoder")
+            self.text_tokenizer = MistralTokenizer.from_hf_hub("mistralai/Mistral-Small-3.2-24B-Instruct-2506")
+
             logger.info("Loading the Flux2 pipeline")
             self.pipe = Flux2Pipeline.from_pretrained(
 				repo_id, text_encoder=None, torch_dtype=torch.bfloat16,
@@ -394,9 +415,8 @@ class InfiniteFlux2StreamHandlers:
             prompt = cfg.prompt
             if cfg.enhance_prompt:
                 logger.info(f"Enhancing prompt for inference #{self.inference_count}")
-                enhanced_prompt = self.enhance_prompt(cfg.prompt)
-                logger.info(f"Enhanced prompt: {enhanced_prompt}")
-                prompt = enhanced_prompt
+                prompt = self.enhance_prompt(cfg.prompt)
+                logger.info(f"Enhanced prompt: {prompt}")
             # Run inference with callback for interruption
             result = self.pipe(
                 generator=torch.Generator(device="cuda").manual_seed(cfg.seed),

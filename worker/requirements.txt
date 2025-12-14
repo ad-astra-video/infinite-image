@@ -5,3 +5,4 @@ transformers
 accelerate
 bitsandbytes
 torchao
+mistral-common
