@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import copy
 from fileinput import filename
 import gc
 import io
@@ -20,7 +21,7 @@ import PIL
 
 import torch
 from diffusers import Flux2Pipeline
-from transformers import Mistral3ForConditionalGeneration, BitsAndBytesConfig
+from transformers import Mistral3ForConditionalGeneration, AutoProcessor, BitsAndBytesConfig
 
 from diffusers.utils import load_image
 from huggingface_hub import snapshot_download
@@ -58,8 +59,12 @@ class InfiniteFlux2Config:
     guidance_scale: float = 4.0
     seed : int = 42
     seed_adjustment: str = "increment"  #none, random, increment, decrement
+    enhance_prompt: bool = False
+    enhance_guidance: str = "none"
+    
     #processed inputs to use for generation
     processed_reference_images: list["Image.Image"] = None
+    prompt_guidance_doc: str = "" #read from flux2_prompting.md file on load
 
 class InfiniteFlux2StreamHandlers:
     """Handlers for InfiniteFlux2 video generation with direct tensor inference."""
@@ -73,6 +78,7 @@ class InfiniteFlux2StreamHandlers:
         # Runner for direct inference
         self.pipe = None
         self.text_encoder = None
+        self.text_processor = None
         self.runner_ready = False
         
         # Inference locking mechanism with callback-based interruption
@@ -95,6 +101,36 @@ class InfiniteFlux2StreamHandlers:
         self.current_frame = None
         self.no_audio_in_stream = True
 
+    def load_prompt_guide(self, file_path: str) -> str:
+        """Load prompt guidance document from file."""
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                guide_text = f.read()
+            return guide_text
+        except Exception as e:
+            logger.error(f"Error loading prompt guidance document: {e}")
+            return ""
+        
+    def enhance_prompt(self, prompt: str) -> str:
+        instruction = f"""
+        You are a prompt enhancement engine.
+
+        Rewrite the following prompt to be:
+        - more descriptive
+        - vivid and precise
+        - suitable for a text-to-image model
+        - without changing the original intent
+        - no negative prompts
+        - no commentary, only the final enhanced prompt
+        - {self.cfg.enhance_guidance}
+
+        Guide to good prompt: {self.cfg.prompt_guidance_doc}
+        Original prompt:
+        "{prompt}"
+        """.strip()
+
+        return instruction
+    
     async def create_placeholder_frame(self):
         #create placeholder image for frames until first generation completed
             height = self.cfg.height
@@ -132,6 +168,8 @@ class InfiniteFlux2StreamHandlers:
     async def load(self, **kwargs: dict) -> None:
         """Initialize processor state - called during model loading phase."""
         try:
+            self.cfg.prompt_guidance_doc = self.load_prompt_guide("flux2_prompting.md")
+
             repo_id = os.environ.get("FLUX2_REPO_ID", "black-forest-labs/FLUX.2-dev")
             flux_model_download = snapshot_download(
                 repo_id=repo_id,
@@ -146,6 +184,7 @@ class InfiniteFlux2StreamHandlers:
                 repo_id, subfolder="text_encoder", dtype=torch.bfloat16, quantization_config=quantization_config,
                 device_map="cuda"
             )
+            self.text_processor = AutoProcessor.from_pretrained(repo_id, subfolder="text_encoder")
             logger.info("Loading the Flux2 pipeline")
             self.pipe = Flux2Pipeline.from_pretrained(
 				repo_id, text_encoder=None, torch_dtype=torch.bfloat16,
@@ -301,6 +340,14 @@ class InfiniteFlux2StreamHandlers:
                     # Move PyTorch inference to background thread to avoid blocking asyncio loop
                     image = await asyncio.to_thread(self._run_inference_with_callback)
                     
+                    # update seed based on adjustment strategy
+                    if self.cfg.seed_adjustment == "increment":
+                        self.cfg.seed += 1
+                    elif self.cfg.seed_adjustment == "decrement":
+                        self.cfg.seed -= 1
+                    elif self.cfg.seed_adjustment == "random":
+                        self.cfg.seed = random.randint(0, 2**32 - 1)
+
                     gen_end = time.perf_counter()
                     logger.info(f"Image generation took {gen_end - gen_start:.2f} seconds")
 
@@ -337,33 +384,30 @@ class InfiniteFlux2StreamHandlers:
         self.inference_in_progress = True
         self.inference_count += 1
         logger.info(f"Starting inference #{self.inference_count} - in_progress: {self.inference_in_progress}")
-        
+        cfg = copy.deepcopy(self.cfg)   #snapshot for inference run
         # Clear completion event for new inference
         self.inference_completed_event.clear()
         
         try:
             # Create interrupt callback
             interrupt_callback = self._create_interrupt_callback()
-            
+            prompt = cfg.prompt
+            if cfg.enhance_prompt:
+                logger.info(f"Enhancing prompt for inference #{self.inference_count}")
+                enhanced_prompt = self.enhance_prompt(cfg.prompt)
+                logger.info(f"Enhanced prompt: {enhanced_prompt}")
+                prompt = enhanced_prompt
             # Run inference with callback for interruption
             result = self.pipe(
-                generator=torch.Generator(device="cuda").manual_seed(self.cfg.seed),
-                image=self.cfg.processed_reference_images,
-                height=self.cfg.height,
-                width=self.cfg.width,
-                prompt=self.cfg.prompt,
-                guidance_scale=self.cfg.guidance_scale,
-                num_inference_steps=self.cfg.steps,
+                generator=torch.Generator(device="cuda").manual_seed(cfg.seed),
+                image=cfg.processed_reference_images,
+                height=cfg.height,
+                width=cfg.width,
+                prompt=prompt,
+                guidance_scale=cfg.guidance_scale,
+                num_inference_steps=cfg.steps,
                 callback_on_step_end=interrupt_callback
             ).images[0]
-            
-            # update seed based on adjustment strategy
-            if self.cfg.seed_adjustment == "increment":
-                self.cfg.seed += 1
-            elif self.cfg.seed_adjustment == "decrement":
-                self.cfg.seed -= 1
-            elif self.cfg.seed_adjustment == "random":
-                self.cfg.seed = random.randint(0, 2**32 - 1)
             
             logger.info(f"Completed inference #{self.inference_count} seed: {self.cfg.seed}")
             return result
@@ -445,6 +489,8 @@ class InfiniteFlux2StreamHandlers:
         self.cfg.guidance_scale = float(params.get("guidance_scale", self.cfg.guidance_scale))
         self.cfg.seed = int(params.get("seed", self.cfg.seed))
         self.cfg.seed_adjustment = params.get("seed_adjustment", self.cfg.seed_adjustment)
+        self.cfg.enhance_prompt = params.get("enhance_prompt", "no").lower() in ("yes", "true", "1", "y", "on")
+        self.cfg.enhance_guidance = params.get("enhance_guidance", self.cfg.enhance_guidance)
         # Reset processed reference images on param update
         self.cfg.processed_reference_images = None  
 
