@@ -665,6 +665,23 @@ function VideoPlayer({
             <div className="dropdown glass">
               <div className="dropdown-content">
                 <div className="tip-jar-text">Send a tip</div>
+                
+                {/* USDC Balance Warning */}
+                {wallet.usdcBalance === '0.00' && (
+                  <div className="tip-warning" style={{
+                    backgroundColor: 'rgba(255, 193, 7, 0.1)',
+                    border: '1px solid rgba(255, 193, 7, 0.3)',
+                    borderRadius: '8px',
+                    padding: '12px',
+                    marginBottom: '16px',
+                    color: 'var(--text-primary)',
+                    fontSize: '14px',
+                    fontWeight: '500'
+                  }}>
+                    ⚠️ Your USDC balance on {wallet.network} is 0.00. Please get some USDC on {wallet.network} to send tips.
+                  </div>
+                )}
+                
                 <div className="tip-input-group">
                   <input
                     type="text"
@@ -679,32 +696,32 @@ function VideoPlayer({
                     <button
                       className="btn btn-secondary"
                       onClick={() => handleTip(1, tipMessage)}
-                      disabled={loading || !wallet.connected}
-                      title={!wallet.connected ? 'Connect wallet first' : ''}
+                      disabled={loading || !wallet.connected || wallet.usdcBalance === '0.00'}
+                      title={!wallet.connected ? 'Connect wallet first' : wallet.usdcBalance === '0.00' ? 'Insufficient USDC balance' : ''}
                     >
                       ${(1 * 0.01).toFixed(2)}
                     </button>
                     <button
                       className="btn btn-secondary"
                       onClick={() => handleTip(5, tipMessage)}
-                      disabled={loading || !wallet.connected}
-                      title={!wallet.connected ? 'Connect wallet first' : ''}
+                      disabled={loading || !wallet.connected || wallet.usdcBalance === '0.00'}
+                      title={!wallet.connected ? 'Connect wallet first' : wallet.usdcBalance === '0.00' ? 'Insufficient USDC balance' : ''}
                     >
                       ${(5 * 0.01).toFixed(2)}
                     </button>
                     <button
                       className="btn btn-secondary"
                       onClick={() => handleTip(10, tipMessage)}
-                      disabled={loading || !wallet.connected}
-                      title={!wallet.connected ? 'Connect wallet first' : ''}
+                      disabled={loading || !wallet.connected || wallet.usdcBalance === '0.00'}
+                      title={!wallet.connected ? 'Connect wallet first' : wallet.usdcBalance === '0.00' ? 'Insufficient USDC balance' : ''}
                     >
                       ${(10 * 0.01).toFixed(2)}
                     </button>
                     <button
                       className="btn btn-secondary"
                       onClick={() => handleTip(25, tipMessage)}
-                      disabled={loading || !wallet.connected}
-                      title={!wallet.connected ? 'Connect wallet first' : ''}
+                      disabled={loading || !wallet.connected || wallet.usdcBalance === '0.00'}
+                      title={!wallet.connected ? 'Connect wallet first' : wallet.usdcBalance === '0.00' ? 'Insufficient USDC balance' : ''}
                     >
                       ${(25 * 0.01).toFixed(2)}
                     </button>
@@ -713,32 +730,32 @@ function VideoPlayer({
                     <button
                       className="btn btn-secondary"
                       onClick={() => handleTip(100, tipMessage)}
-                      disabled={loading || !wallet.connected}
-                      title={!wallet.connected ? 'Connect wallet first' : ''}
+                      disabled={loading || !wallet.connected || wallet.usdcBalance === '0.00'}
+                      title={!wallet.connected ? 'Connect wallet first' : wallet.usdcBalance === '0.00' ? 'Insufficient USDC balance' : ''}
                     >
                       $1.00
                     </button>
                     <button
                       className="btn btn-secondary"
                       onClick={() => handleTip(500, tipMessage)}
-                      disabled={loading || !wallet.connected}
-                      title={!wallet.connected ? 'Connect wallet first' : ''}
+                      disabled={loading || !wallet.connected || wallet.usdcBalance === '0.00'}
+                      title={!wallet.connected ? 'Connect wallet first' : wallet.usdcBalance === '0.00' ? 'Insufficient USDC balance' : ''}
                     >
                       $5.00
                     </button>
                     <button
                       className="btn btn-secondary"
                       onClick={() => handleTip(1000, tipMessage)}
-                      disabled={loading || !wallet.connected}
-                      title={!wallet.connected ? 'Connect wallet first' : ''}
+                      disabled={loading || !wallet.connected || wallet.usdcBalance === '0.00'}
+                      title={!wallet.connected ? 'Connect wallet first' : wallet.usdcBalance === '0.00' ? 'Insufficient USDC balance' : ''}
                     >
                       $10.00
                     </button>
                     <button
                       className="btn btn-secondary"
                       onClick={() => handleTip(2500, tipMessage)}
-                      disabled={loading || !wallet.connected}
-                      title={!wallet.connected ? 'Connect wallet first' : ''}
+                      disabled={loading || !wallet.connected || wallet.usdcBalance === '0.00'}
+                      title={!wallet.connected ? 'Connect wallet first' : wallet.usdcBalance === '0.00' ? 'Insufficient USDC balance' : ''}
                     >
                       $25.00
                     </button>

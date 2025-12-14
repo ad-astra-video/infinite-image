@@ -45,7 +45,7 @@ export function buildX402TypedData(payReq, walletAddress) {
         from: walletAddress,
         to: payReq.payTo,
         value: payReq.maxAmountRequired,
-        validAfter: "0",
+        validAfter: (now-1).toString(), // Valid immediately
         validBefore: (now + 300).toString(), // Valid for 5 minutes
         nonce: generateBytes32Nonce(),
     },
