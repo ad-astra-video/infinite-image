@@ -240,9 +240,42 @@ server.listen(PORT, () => {
   logger.info("infinite-stream server initialized successfully");
 });
 
-// Graceful shutdown handler - perform final USDC sweep on server close
+// Graceful shutdown handler - perform final USDC sweep and stream stop on server close
 async function gracefulShutdown(signal) {
-  logger.info(`${signal} received, performing final USDC sweep...`);
+  logger.info(`${signal} received, performing final cleanup...`);
+  
+  // Log current stream status before attempting shutdown
+  const streamStatus = streamRouter.getStreamStatus();
+  logger.info(`Stream status at shutdown: ${JSON.stringify(streamStatus)}`);
+  
+  // Stop active stream with retry logic
+  if (streamRouter.hasActiveStream()) {
+    logger.info('Attempting to stop active stream before shutdown...');
+    
+    let stopAttempts = 0;
+    const maxRetries = 3;
+    const retryDelay = 2000; // 2 seconds between retries
+    
+    while (stopAttempts < maxRetries) {
+      try {
+        await streamRouter.stopStream();
+        logger.info('Stream stopped successfully during shutdown');
+        break;
+      } catch (error) {
+        stopAttempts++;
+        logger.warn(`Stream stop attempt ${stopAttempts} failed: ${error.message}`);
+        
+        if (stopAttempts < maxRetries) {
+          logger.info(`Retrying stream stop in ${retryDelay}ms... (attempt ${stopAttempts + 1}/${maxRetries})`);
+          await new Promise(resolve => setTimeout(resolve, retryDelay));
+        } else {
+          logger.error(`All ${maxRetries} stream stop attempts failed. Proceeding with shutdown anyway.`);
+        }
+      }
+    }
+  } else {
+    logger.info('No active stream to stop during shutdown');
+  }
   
   try {
     await usdcSweep.sweepUsdc();
@@ -256,11 +289,11 @@ async function gracefulShutdown(signal) {
     process.exit(0);
   });
   
-  // Force close after 10 seconds
+  // Force close after 15 seconds (increased to allow for stream stop retries)
   setTimeout(() => {
     logger.error('Forced shutdown after timeout');
     process.exit(1);
-  }, 10000);
+  }, 15000);
 }
 
 // Listen for termination signals
