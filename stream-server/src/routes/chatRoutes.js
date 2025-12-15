@@ -163,6 +163,58 @@ class ChatRouter {
       this.logger.info(`Chat room ${room} cleared`);
       res.json({ message: 'Chat room cleared successfully' });
     });
+
+    // ENS name verification endpoint
+    this.router.post('/verify-ens', async (req, res) => {
+      try {
+        const { query, ensName } = req.body;
+        
+        if (!query || !ensName) {
+          return res.status(400).json({ error: 'Missing query or ensName' });
+        }
+
+        const GRAPH_API_KEY = process.env.GRAPH_API_KEY;
+        const GRAPH_QUERY_URL = process.env.GRAPH_QUERY_URL;
+
+        if (!GRAPH_API_KEY || !GRAPH_QUERY_URL) {
+          return res.status(500).json({ error: 'Graph API configuration missing' });
+        }
+
+        const response = await fetch(GRAPH_QUERY_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${GRAPH_API_KEY}`
+          },
+          body: JSON.stringify({ query })
+        });
+
+        if (!response.ok) {
+          throw new Error(`GraphQL request failed: ${response.status}`);
+        }
+
+        const result = await response.json();
+        
+        if (result.errors) {
+          this.logger.error('GraphQL errors:', result.errors);
+          return res.status(500).json({ error: 'GraphQL query failed' });
+        }
+
+        const domains = result.data?.domains || [];
+        const domainNames = domains.map(domain => domain.name.toLowerCase());
+        const isValidENS = domainNames.includes(ensName.toLowerCase());
+
+        this.logger.info(`ENS verification for ${ensName}: ${isValidENS ? 'valid' : 'invalid'}`);
+        
+        res.json({
+          valid: isValidENS,
+          data: result.data
+        });
+      } catch (error) {
+        this.logger.error('ENS verification error:', error);
+        res.status(500).json({ error: 'Failed to verify ENS name' });
+      }
+    });
   }
 
   // Add user to supporter chat allowed list
