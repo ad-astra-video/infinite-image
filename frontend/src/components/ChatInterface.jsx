@@ -3,6 +3,8 @@ import { Send, MessageCircle, Users, Shield, Crown, Lock, Clock, ChevronUp, Chev
 import { useWallet } from './WalletConnect'
 import { API_BASE } from '../utils/apiConfig'
 import DisplayNameModal from './DisplayNameModal'
+import { useWebSocket } from '../hooks/useWebSocket'
+import WebSocketStatus from './WebSocketStatus'
 
 function ChatInterface() {
   const wallet = useWallet()
@@ -12,9 +14,7 @@ function ChatInterface() {
   const [newMessage, setNewMessage] = useState('')
   const [supporterChatMessage, setSupporterChatMessage] = useState('')
   const [loading, setLoading] = useState(false)
-  const [connected, setConnected] = useState(false)
-  const [ws, setWs] = useState(null)
-  const [userJoined, setUserJoined] = useState(false)
+const [userJoined, setUserJoined] = useState(false)
   const [lastMessageTime, setLastMessageTime] = useState(0)
   const [isSupporter, setIsSupporter] = useState(false)
   const [tipSuccessAnimation, setTipSuccessAnimation] = useState(false)
@@ -28,6 +28,51 @@ function ChatInterface() {
   const messagesEndRef = useRef(null)
   const messageInputRef = useRef(null)
   const prevRoomRef = useRef(null)
+
+  // WebSocket connection with monitoring and retry logic
+  const wsUrl = API_BASE.replace('http', 'ws') + '/chat'
+  const {
+    connectionState,
+    isConnected,
+    isConnecting,
+    isReconnecting,
+    hasFailed,
+    retryCount,
+    connectionQuality,
+    connect: wsConnect,
+    disconnect: wsDisconnect,
+    sendMessage: wsSendMessage,
+    getConnectionInfo,
+    ws: wsInstance
+  } = useWebSocket(wsUrl, {
+    onConnect: () => {
+      console.log('WebSocket connected - Chat server online')
+      setConnected(true)
+    },
+    onDisconnect: (event) => {
+      console.log('WebSocket disconnected:', event.code, event.reason)
+      setConnected(false)
+      setUserJoined(false)
+    },
+    onError: (error) => {
+      console.error('WebSocket error:', error)
+    },
+    onMessage: (data) => {
+      handleWebSocketMessage(data)
+    },
+    autoConnect: true,
+    reconnectOnError: true,
+    retryConfig: {
+      maxRetries: 5,
+      initialDelay: 1000,
+      maxDelay: 30000,
+      backoffMultiplier: 2,
+      jitter: true
+    }
+  })
+
+  // Legacy connected state for backward compatibility
+  const [connected, setConnected] = useState(false)
 
   // Function to start cooldown timer for anonymous users
   const startCooldownTimer = (seconds) => {
@@ -56,7 +101,7 @@ function ChatInterface() {
     window.dispatchEvent(new CustomEvent('openTipJar'))
   }
 
-  // Listen for tip success events
+  // Listen for tip success and failure events
   useEffect(() => {
     const handleTipSuccess = () => {
       setIsSupporter(true)
@@ -67,8 +112,17 @@ function ChatInterface() {
       }, 3000)
     }
 
+    const handleTipFailure = () => {
+      // Could add tip failure animation or feedback here
+      console.log('Tip failed - user has been notified via toast')
+    }
+
     window.addEventListener('tipSuccess', handleTipSuccess)
-    return () => window.removeEventListener('tipSuccess', handleTipSuccess)
+    window.addEventListener('tipFailure', handleTipFailure)
+    return () => {
+      window.removeEventListener('tipSuccess', handleTipSuccess)
+      window.removeEventListener('tipFailure', handleTipFailure)
+    }
   }, [])
 
   const messageTypes = {
@@ -100,7 +154,7 @@ function ChatInterface() {
 
   // Check supporter status via WebSocket
   const checkSupporterStatus = async (userAddress) => {
-    if (!ws || !userAddress || ws.readyState !== WebSocket.OPEN) {
+    if (!wsInstance || !userAddress || !isConnected) {
       console.log('WebSocket not ready for supporter check')
       return false
     }
@@ -140,11 +194,11 @@ function ChatInterface() {
     
     // Only send supporter check if we have a valid signature
     if (signingSuccess && userSignature) {
-      ws.send(JSON.stringify({
+      wsSendMessage({
         type: 'is_supporter',
         userAddress,
         userSignature
-      }))
+      })
       return true
     } else {
       console.log('Skipping supporter check due to signing failure or missing signature')
@@ -154,302 +208,251 @@ function ChatInterface() {
     }
   }
 
-  // Initialize WebSocket connection
-  useEffect(() => {
-    if (!ws) {
-      const wsUrl = API_BASE.replace('http', 'ws') + '/chat'
-      const newWs = new WebSocket(wsUrl)
-      
-      newWs.onopen = () => {
-        console.log('Connected to chat server')
-        setConnected(true)
-      }
-      
-      newWs.onclose = (event) => {
-        console.log('Disconnected from chat server, code:', event.code, 'reason:', event.reason)
-        setConnected(false)
-      }
-      
-      newWs.onerror = (error) => {
-        console.error('WebSocket error:', error)
-      }
-      
-      newWs.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data)
-          //console.log('Received message:', data)
-          
-          switch (data.type) {
-            case 'connection':
-              console.log('Connection established:', data.message)``
-              break
-            case 'chat_history':
-              //console.log('Received historical messages:', data.messages.length)
+  // WebSocket message handler
+  const handleWebSocketMessage = (data) => {
+    switch (data.type) {
+      case 'connection':
+        console.log('Connection established:', data.message)
+        break
+      case 'chat_history':
+        // Add historical messages to the appropriate message state based on room
+        if (data.room === 'public') {
+          setPublicMessages(prev => {
+            try {
+              // Filter out any duplicate messages that might already exist
+              const existingIds = new Set(prev.map(m => m.id))
+              const newMessages = data.messages.filter(m => !existingIds.has(m.id))
               
-              // Add historical messages to the appropriate message state based on room
-              if (data.room === 'public') {
-                setPublicMessages(prev => {
-                  try {
-                    // Filter out any duplicate messages that might already exist
-                    const existingIds = new Set(prev.map(m => m.id))
-                    const newMessages = data.messages.filter(m => !existingIds.has(m.id))
-                    
-                    // Sort messages by timestamp to maintain chronological order
-                    const allMessages = [...prev, ...newMessages].sort((a, b) =>
-                      new Date(a.timestamp) - new Date(b.timestamp)
-                    )
-                    
-                    return allMessages
-                  } catch (err) {
-                    console.warn('Failed to process public historical messages:', err)
-                    return [...prev, ...data.messages]
-                  }
-                })
-              } else if (data.room === 'supporter') {
-                setSupporterMessages(prev => {
-                  try {
-                    // Filter out any duplicate messages that might already exist
-                    const existingIds = new Set(prev.map(m => m.id))
-                    const newMessages = data.messages.filter(m => !existingIds.has(m.id))
-                    
-                    // Sort messages by timestamp to maintain chronological order
-                    const allMessages = [...prev, ...newMessages].sort((a, b) =>
-                      new Date(a.timestamp) - new Date(b.timestamp)
-                    )
-                    
-                    return allMessages
-                  } catch (err) {
-                    console.warn('Failed to process supporter historical messages:', err)
-                    return [...prev, ...data.messages]
-                  }
-                })
-              }
+              // Sort messages by timestamp to maintain chronological order
+              const allMessages = [...prev, ...newMessages].sort((a, b) =>
+                new Date(a.timestamp) - new Date(b.timestamp)
+              )
               
-              // Update lastMessageTime if we received historical messages
-              if (data.messages && data.messages.length > 0) {
-                const lastMessage = data.messages[data.messages.length - 1]
-                setLastMessageTime(new Date(lastMessage.timestamp).getTime())
-              }
-              break
-            case 'chat_message':
-              // Deduplicate server-echoed messages for ones we already optimistically added.
-              // Handle both messageType (legacy) and room (current) fields from server
-              const messageType = data.messageType || data.room || 'public'
+              return allMessages
+            } catch (err) {
+              console.warn('Failed to process public historical messages:', err)
+              return [...prev, ...data.messages]
+            }
+          })
+        } else if (data.room === 'supporter') {
+          setSupporterMessages(prev => {
+            try {
+              // Filter out any duplicate messages that might already exist
+              const existingIds = new Set(prev.map(m => m.id))
+              const newMessages = data.messages.filter(m => !existingIds.has(m.id))
               
-              if (messageType === 'public') {
-                setPublicMessages(prev => {
-                  try {
-                    // Map server fields to frontend fields for deduplication
-                    const serverMessage = {
-                      ...data,
-                      sender: data.userAddress || data.sender,
-                      content: data.message || data.content
-                    }
-                    
-                    // Look for a local optimistic message that matches by content and sender
-                    const localIndex = prev.findIndex(m => {
-                      if (!m.id || !m.id.toString().startsWith('local-')) return false
-                      const localMessage = {
-                        sender: m.userAddress || m.sender,
-                        content: m.message || m.content
-                      }
-                      return localMessage.content === serverMessage.content && localMessage.sender === serverMessage.sender
-                    })
-                    
-                    if (localIndex !== -1) {
-                      // Replace the local optimistic message with the authoritative server message
-                      const next = prev.slice()
-                      next[localIndex] = data
-                      return next
-                    }
-                  } catch (err) {
-                    console.warn('Failed to dedupe public chat message:', err)
-                  }
-                  const newMessages = [...prev, data]
-                  // Track unread messages for mobile
-                  if (isMobile() && !isMobileChatExpanded) {
-                    setUnreadMessageCount(prev => prev + 1)
-                  }
-                  return newMessages
-                })
-              } else if (messageType === 'supporter') {
-                setSupporterMessages(prev => {
-                  try {
-                    // Map server fields to frontend fields for deduplication
-                    const serverMessage = {
-                      ...data,
-                      sender: data.userAddress || data.sender,
-                      content: data.message || data.content
-                    }
-                    
-                    // Look for a local optimistic message that matches by content and sender
-                    const localIndex = prev.findIndex(m => {
-                      if (!m.id || !m.id.toString().startsWith('local-')) return false
-                      const localMessage = {
-                        sender: m.userAddress || m.sender,
-                        content: m.message || m.content
-                      }
-                      return localMessage.content === serverMessage.content && localMessage.sender === serverMessage.sender
-                    })
-                    
-                    if (localIndex !== -1) {
-                      // Replace the local optimistic message with the authoritative server message
-                      const next = prev.slice()
-                      next[localIndex] = data
-                      return next
-                    }
-                  } catch (err) {
-                    console.warn('Failed to dedupe supporter chat message:', err)
-                  }
-                  const newMessages = [...prev, data]
-                  // Track unread messages for mobile
-                  if (isMobile() && !isMobileChatExpanded) {
-                    setUnreadMessageCount(prev => prev + 1)
-                  }
-                  return newMessages
-                })
-              } else if (messageType === 'tip') {
-                // Handle tip messages - broadcast to public chat with gold styling
-                setPublicMessages(prev => {
-                  try {
-                    const tipMessage = {
-                      ...data,
-                      sender: data.userAddress || data.sender,
-                      content: data.message || data.content,
-                      messageType: 'tip'
-                    }
-                    const newMessages = [...prev, tipMessage]
-                    // Track unread messages for mobile
-                    if (isMobile() && !isMobileChatExpanded) {
-                      setUnreadMessageCount(prev => prev + 1)
-                    }
-                    return newMessages
-                  } catch (err) {
-                    console.warn('Failed to process tip message:', err)
-                    return [...prev, data]
-                  }
-                })
-              }
+              // Sort messages by timestamp to maintain chronological order
+              const allMessages = [...prev, ...newMessages].sort((a, b) =>
+                new Date(a.timestamp) - new Date(b.timestamp)
+              )
               
-              // Update lastMessageTime for new chat messages
-              setLastMessageTime(new Date(data.timestamp).getTime())
-              break
-            case 'supporter_status':
-              // Fix: Normalize addresses to lowercase for comparison
-              const normalizedWalletAddress = (wallet.address || '').toLowerCase()
-              const normalizedLoginAddress = (wallet.loginAddress || '').toLowerCase()
-              
-              if (data.userAddress === normalizedWalletAddress || data.userAddress === normalizedLoginAddress) {
-                // Trigger tip success animation when supporter status becomes true
-                if (data.isSupporter && !isSupporter) {
-                  setIsSupporter(data.isSupporter)
-                  setTipSuccessAnimation(true)
-                  // Remove animation after 3 seconds
-                  setTimeout(() => {
-                    setTipSuccessAnimation(false)
-                  }, 3000)
-                  
-                  // Automatically join supporter chat when status becomes true
-                  console.log('Supporter status confirmed, automatically joining supporter chat')
-                  if (ws && connected) {
-                    // Leave current room first if we're in a different room
-                    const currentRoom = prevRoomRef.current
-                    if (currentRoom && currentRoom !== 'supporter') {
-                      ws.send(JSON.stringify({
-                        type: 'leave_chat',
-                        room: currentRoom
-                      }))
-                    }
-                    
-                    // Join supporter chat room
-                    ws.send(JSON.stringify({
-                      type: 'join_chat',
-                      room: 'supporter',
-                      userAddress: wallet.address || 'anon',
-                      userType: 'supporter',
-                      userSignature: '',
-                      lastMessageTime: lastMessageTime || null,
-                      userDisplayName: localStorage.getItem('userDisplayName') || null
-                    }))
-                    
-                    // Remember that we're now in supporter room
-                    prevRoomRef.current = 'supporter'
-                    setUserJoined(true)
-                    
-                    // Switch to supporter tab to show the chat
-                    setActiveTab('supporter')
-                  }
-                }
-                
-                // Only remove system messages if user is already a supporter
-                // This prevents race conditions during initial checks
-                if (data.isSupporter) {
-                  setSupporterMessages(prev =>
-                    prev.filter(message =>
-                      message.senderType !== 'system' &&
-                      message.messageType !== 'error'
-                    )
-                  )
-                }
-              }
-              break
-            case 'user_joined':
-              //console.log('User joined:', data)
-
-              // Store room count for display
-              if (data.room && data.roomCount) {
-                setRoomCounts(prev => ({
-                  ...prev,
-                  [data.room]: data.roomCount
-                }))
-              }
-              break
-            case 'user_left':
-              //console.log('User left:', data)
-
-              // Update room count for display
-              if (data.room) {
-                setRoomCounts(prev => ({
-                  ...prev,
-                  [data.room]: Math.max(0, (prev[data.room] || 0) - 1)
-                }))
-              }
-              break
-            case 'user_address_updated':
-              //console.log('User address updated:', data)
-
-              // Update display name for the user who updated their address
-              // This helps show the updated address in the UI
-              break
-            case 'rate_limit':
-              //console.log('Rate limit response received:', data)
-
-              if (data.nextMessageTime) {
-                console.log('Starting cooldown timer for:', data.nextMessageTime, 'seconds')
-                startCooldownTimer(data.nextMessageTime)
-              }
-              break
-            case 'join_success':
-              //console.log('Join success:', data.message)
-              break
-            case 'error':
-              console.error('WebSocket error:', data.error)
-              alert(data.error)
-              break
-            
-          }
-        } catch (error) {
-          console.error('Failed to parse WebSocket message:', error)
+              return allMessages
+            } catch (err) {
+              console.warn('Failed to process supporter historical messages:', err)
+              return [...prev, ...data.messages]
+            }
+          })
         }
-      }
-      
-      setWs(newWs)
-      
-      return () => {
-        newWs.close()
-      }
+        
+        // Update lastMessageTime if we received historical messages
+        if (data.messages && data.messages.length > 0) {
+          const lastMessage = data.messages[data.messages.length - 1]
+          setLastMessageTime(new Date(lastMessage.timestamp).getTime())
+        }
+        break
+      case 'chat_message':
+        // Deduplicate server-echoed messages for ones we already optimistically added.
+        // Handle both messageType (legacy) and room (current) fields from server
+        const messageType = data.messageType || data.room || 'public'
+        
+        if (messageType === 'public') {
+          setPublicMessages(prev => {
+            try {
+              // Map server fields to frontend fields for deduplication
+              const serverMessage = {
+                ...data,
+                sender: data.userAddress || data.sender,
+                content: data.message || data.content
+              }
+              
+              // Look for a local optimistic message that matches by content and sender
+              const localIndex = prev.findIndex(m => {
+                if (!m.id || !m.id.toString().startsWith('local-')) return false
+                const localMessage = {
+                  sender: m.userAddress || m.sender,
+                  content: m.message || m.content
+                }
+                return localMessage.content === serverMessage.content && localMessage.sender === serverMessage.sender
+              })
+              
+              if (localIndex !== -1) {
+                // Replace the local optimistic message with the authoritative server message
+                const next = prev.slice()
+                next[localIndex] = data
+                return next
+              }
+            } catch (err) {
+              console.warn('Failed to dedupe public chat message:', err)
+            }
+            const newMessages = [...prev, data]
+            // Track unread messages for mobile
+            if (isMobile() && !isMobileChatExpanded) {
+              setUnreadMessageCount(prev => prev + 1)
+            }
+            return newMessages
+          })
+        } else if (messageType === 'supporter') {
+          setSupporterMessages(prev => {
+            try {
+              // Map server fields to frontend fields for deduplication
+              const serverMessage = {
+                ...data,
+                sender: data.userAddress || data.sender,
+                content: data.message || data.content
+              }
+              
+              // Look for a local optimistic message that matches by content and sender
+              const localIndex = prev.findIndex(m => {
+                if (!m.id || !m.id.toString().startsWith('local-')) return false
+                const localMessage = {
+                  sender: m.userAddress || m.sender,
+                  content: m.message || m.content
+                }
+                return localMessage.content === serverMessage.content && localMessage.sender === serverMessage.sender
+              })
+              
+              if (localIndex !== -1) {
+                // Replace the local optimistic message with the authoritative server message
+                const next = prev.slice()
+                next[localIndex] = data
+                return next
+              }
+            } catch (err) {
+              console.warn('Failed to dedupe supporter chat message:', err)
+            }
+            const newMessages = [...prev, data]
+            // Track unread messages for mobile
+            if (isMobile() && !isMobileChatExpanded) {
+              setUnreadMessageCount(prev => prev + 1)
+            }
+            return newMessages
+          })
+        } else if (messageType === 'tip') {
+          // Handle tip messages - broadcast to public chat with gold styling
+          setPublicMessages(prev => {
+            try {
+              const tipMessage = {
+                ...data,
+                sender: data.userAddress || data.sender,
+                content: data.message || data.content,
+                messageType: 'tip'
+              }
+              const newMessages = [...prev, tipMessage]
+              // Track unread messages for mobile
+              if (isMobile() && !isMobileChatExpanded) {
+                setUnreadMessageCount(prev => prev + 1)
+              }
+              return newMessages
+            } catch (err) {
+              console.warn('Failed to process tip message:', err)
+              return [...prev, data]
+            }
+          })
+        }
+        
+        // Update lastMessageTime for new chat messages
+        setLastMessageTime(new Date(data.timestamp).getTime())
+        break
+      case 'supporter_status':
+        // Fix: Normalize addresses to lowercase for comparison
+        const normalizedWalletAddress = (wallet.address || '').toLowerCase()
+        const normalizedLoginAddress = (wallet.loginAddress || '').toLowerCase()
+        
+        if (data.userAddress === normalizedWalletAddress || data.userAddress === normalizedLoginAddress) {
+          // Trigger tip success animation when supporter status becomes true
+          if (data.isSupporter && !isSupporter) {
+            setIsSupporter(data.isSupporter)
+            setTipSuccessAnimation(true)
+            // Remove animation after 3 seconds
+            setTimeout(() => {
+              setTipSuccessAnimation(false)
+            }, 3000)
+            
+            // Automatically join supporter chat when status becomes true
+            console.log('Supporter status confirmed, automatically joining supporter chat')
+            if (wsInstance && isConnected) {
+              // Leave current room first if we're in a different room
+              const currentRoom = prevRoomRef.current
+              if (currentRoom && currentRoom !== 'supporter') {
+                wsSendMessage({
+                  type: 'leave_chat',
+                  room: currentRoom
+                })
+              }
+              
+              // Join supporter chat room
+              wsSendMessage({
+                type: 'join_chat',
+                room: 'supporter',
+                userAddress: wallet.address || 'anon',
+                userType: 'supporter',
+                userSignature: '',
+                lastMessageTime: lastMessageTime || null,
+                userDisplayName: localStorage.getItem('userDisplayName') || null
+              })
+              
+              // Remember that we're now in supporter room
+              prevRoomRef.current = 'supporter'
+              setUserJoined(true)
+              
+              // Switch to supporter tab to show the chat
+              setActiveTab('supporter')
+            }
+          }
+          
+          // Only remove system messages if user is already a supporter
+          // This prevents race conditions during initial checks
+          if (data.isSupporter) {
+            setSupporterMessages(prev =>
+              prev.filter(message =>
+                message.senderType !== 'system' &&
+                message.messageType !== 'error'
+              )
+            )
+          }
+        }
+        break
+      case 'user_joined':
+        // Store room count for display
+        if (data.room && data.roomCount) {
+          setRoomCounts(prev => ({
+            ...prev,
+            [data.room]: data.roomCount
+          }))
+        }
+        break
+      case 'user_left':
+        // Update room count for display
+        if (data.room) {
+          setRoomCounts(prev => ({
+            ...prev,
+            [data.room]: Math.max(0, (prev[data.room] || 0) - 1)
+          }))
+        }
+        break
+      case 'rate_limit':
+        // Handle rate limiting for anonymous users
+        if (data.nextMessageTime) {
+          console.log('Starting cooldown timer for:', data.nextMessageTime, 'seconds')
+          startCooldownTimer(data.nextMessageTime)
+        }
+        break
+      case 'error':
+        console.error('WebSocket error:', data.error)
+        alert(data.error)
+        break
     }
-  }, [])
+  }
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -467,30 +470,32 @@ function ChatInterface() {
   // Join chat room when tab changes
   useEffect(() => {
     // Wait for SIWE authentication to complete before joining chat
-    if (ws && connected && wallet.isConnected) {
+    if (wsInstance && connected) {
       const room = activeTab
       let userType = 'public'
       
-      // Use local isSupporter state as primary source of truth
-      if (isSupporter) {
+      // For supporter chat, require wallet connection and supporter status
+      if (room === 'supporter') {
+        if (!wallet.isConnected) {
+          console.log('Cannot join supporter chat, wallet not connected')
+          return
+        }
+        if (!isSupporter && !wallet.isSupporter) {
+          console.log('Cannot join supporter chat, user is not a supporter')
+          return
+        }
         userType = 'supporter'
-      } else if (wallet.isSupporter) {
-        userType = 'supporter'
-      }
-
-      if (room === 'supporter' && !isSupporter && !wallet.isSupporter) {
-        console.log('Cannot join supporter chat, user is not a supporter')
-        return
       }
 
       console.log('Joining chat:', {
         siweValidated: wallet.siweValidated,
         isConnected: wallet.isConnected,
         isSupporter: isSupporter,
-        userType
+        userType,
+        isAnonymous: !wallet.isConnected
       })
 
-      ws.send(JSON.stringify({
+      wsSendMessage({
         type: 'join_chat',
         room,
         userAddress: wallet.address || 'anon',
@@ -498,45 +503,45 @@ function ChatInterface() {
         userSignature: '',
         lastMessageTime: lastMessageTime || null,
         userDisplayName: localStorage.getItem('userDisplayName') || null
-      }))
+      })
 
       // remember the room we've joined so we can leave it later
       prevRoomRef.current = room
       setUserJoined(true)
     }
-  }, [ws, connected, activeTab, userJoined, lastMessageTime, wallet.isConnected, isSupporter, wallet.isSupporter])
+  }, [wsInstance, isConnected, activeTab, userJoined, lastMessageTime, isSupporter, wallet.isSupporter])
 
   // Leave previous chat room when the active tab changes
   useEffect(() => {
     const prev = prevRoomRef.current
     // if there's a previously joined room and it's different from the current active tab, leave it
-    if (ws && prev && prev !== activeTab) {
-      ws.send(JSON.stringify({
+    if (wsInstance && prev && prev !== activeTab) {
+      wsSendMessage({
         type: 'leave_chat',
         room: prev
-      }))
+      })
 
       // clear remembered previous room and mark not joined so join effect can run for new room
       prevRoomRef.current = null
       setUserJoined(false)
     }
-  }, [ws, activeTab])
+  }, [wsInstance, activeTab])
 
   // Force rejoin supporter chat when supporter status changes
   useEffect(() => {
-    if (activeTab === 'supporter' && isSupporter && ws && connected && userJoined) {
+    if (activeTab === 'supporter' && isSupporter && wsInstance && isConnected && userJoined) {
       const currentRoom = prevRoomRef.current
       if (currentRoom !== 'supporter') {
         console.log('Supporter status changed, rejoining supporter chat room')
         // Leave current room first
         if (currentRoom) {
-          ws.send(JSON.stringify({
+          wsSendMessage({
             type: 'leave_chat',
             room: currentRoom
-          }))
+          })
         }
         // Join supporter room
-        ws.send(JSON.stringify({
+        wsSendMessage({
           type: 'join_chat',
           room: 'supporter',
           userAddress: wallet.address || 'anon',
@@ -544,23 +549,23 @@ function ChatInterface() {
           userSignature: '',
           lastMessageTime: lastMessageTime || null,
           userDisplayName: localStorage.getItem('userDisplayName') || null
-        }))
+        })
         prevRoomRef.current = 'supporter'
       }
     }
-  }, [isSupporter, activeTab, ws, connected, userJoined, lastMessageTime, wallet.address])
+  }, [isSupporter, activeTab, wsInstance, isConnected, userJoined, lastMessageTime, wallet.address])
 
   // Load messages when joining a room - WebSocket handles this automatically
   useEffect(() => {
-    if (ws && userJoined) {
+    if (wsInstance && userJoined) {
       // Historical messages are sent automatically via WebSocket when joining
       console.log('Joining room via WebSocket, historical messages will be delivered automatically')
     }
-  }, [ws, userJoined, activeTab])
+  }, [wsInstance, userJoined, activeTab])
 
   // Send public chat message
   const sendPublicMessage = async () => {
-    if (!newMessage.trim() || !ws) return
+    if (!newMessage.trim() || !wsInstance) return
 
     // Removed client-side timeout check - let server handle all timeout logic for anonymous users
     // Rate limiting is now handled entirely by the server via rate_limit response
@@ -606,7 +611,7 @@ function ChatInterface() {
       }
 
       // public messages can be sent without wallet connected
-      ws.send(JSON.stringify(messageData))
+      wsSendMessage(messageData)
       
       setNewMessage('')
       setLastMessageTime(Date.now())
@@ -618,7 +623,7 @@ function ChatInterface() {
 
   // Send supporter chat message with signature verification
   const sendSupporterChat = async () => {    
-    if (!supporterChatMessage.trim() || !wallet.isConnected || !ws) return
+    if (!supporterChatMessage.trim() || !wallet.isConnected || !wsInstance) return
 
     // Check if we have a login signature from wallet contexts
     if (!wallet.loginAddress) {
@@ -659,7 +664,7 @@ function ChatInterface() {
       }
 
       // Send supporter chat message (with or without signature)
-      ws.send(JSON.stringify(messageData))
+      wsSendMessage(messageData)
       
       setSupporterChatMessage('')
       setLastMessageTime(Date.now())
@@ -701,11 +706,11 @@ function ChatInterface() {
     // 1. User switches to supporter tab AND wallet is connected
     // 2. Wallet connects while on supporter tab
     // 3. Address changes while on supporter tab
-    if (activeTab === 'supporter' && wallet.isConnected && (wallet.address || wallet.loginAddress) && ws && connected) {
+    if (activeTab === 'supporter' && wallet.isConnected && (wallet.address || wallet.loginAddress) && wsInstance && connected) {
       const userAddress = wallet.address || wallet.loginAddress
       checkSupporterStatus(userAddress)
     }
-  }, [activeTab, wallet.isConnected, wallet.address, wallet.loginAddress, ws, connected])
+  }, [activeTab, wallet.isConnected, wallet.address, wallet.loginAddress, wsInstance, connected])
 
   // Handle non-supporter system messages for supporter tab access - only once per session
   useEffect(() => {
@@ -768,11 +773,16 @@ function ChatInterface() {
       <div className={`chat-interface ${isMobile() ? 'mobile-hidden' : ''}`}>
         <div className="chat-header">
           <div className="chat-header-left">
-            <span
-              className={`connection-indicator ${connected ? 'connected' : 'disconnected'}`}
-              title={connected ? 'Connected' : 'Disconnected'}
-              aria-hidden="true"
+            {/* WebSocket Status Indicator with monitoring and retry logic */}
+            <WebSocketStatus
+              connectionState={connectionState}
+              retryCount={retryCount}
+              connectionQuality={connectionQuality}
+              onRetry={wsConnect}
+              showDetails={!isMobile()} // Show detailed info on desktop, minimal on mobile
+              className="mr-2"
             />
+            
             {/* Settings gear for display name */}
             <button
               className="settings-gear"
@@ -973,10 +983,14 @@ function ChatInterface() {
           <div className="mobile-chat-expanded" onClick={(e) => e.stopPropagation()}>
             <div className="mobile-chat-header">
               <div className="mobile-chat-header-left">
-                <span
-                  className={`connection-indicator ${connected ? 'connected' : 'disconnected'}`}
-                  title={connected ? 'Connected' : 'Disconnected'}
-                  aria-hidden="true"
+                {/* WebSocket Status Indicator for Mobile */}
+                <WebSocketStatus
+                  connectionState={connectionState}
+                  retryCount={retryCount}
+                  connectionQuality={connectionQuality}
+                  onRetry={wsConnect}
+                  showDetails={false} // Minimal display for mobile
+                  className="mr-2"
                 />
                 <button
                   className="mobile-chat-close-btn"
