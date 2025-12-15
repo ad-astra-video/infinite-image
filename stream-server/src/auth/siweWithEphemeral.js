@@ -206,23 +206,8 @@ class SIWEWithEphemeralHandler {
       createdAt: Date.now(),
       lastUsed: Date.now()
     };
-
-    this.logger.info('🆕 STORING NEW DELEGATION:', {
-      address: normalizedAddress.substring(0, 8) + '...',
-      oldEphemeralKey: existingDelegation?.ephemeralPublicKey?.substring(0, 8) + '...',
-      newEphemeralKey: delegation.ephemeralPublicKey?.substring(0, 8) + '...',
-      isNewEphemeralKey: isNewEphemeralKey,
-      counter: delegationData.counter,
-      expiresAt: delegation.expiresAt,
-      timestamp: new Date().toISOString()
-    });
     
     this.delegationStore.set(normalizedAddress, delegationData);
-    
-    this.logger.info('📊 Delegation store status:', {
-      totalDelegations: this.delegationStore.size,
-      storeKeys: Array.from(this.delegationStore.keys()).map(addr => addr.substring(0, 8) + '...')
-    });
   }
 
   /**

@@ -262,8 +262,11 @@ class ChatRouter {
       case 'get_history':
         this.handleGetHistory(ws, message);
         break;
+      case 'ping':
+        this.handlePing(ws, message);
+        break;
       default:
-        this.sendError(ws, 'Unknown message type');
+        this.sendError(ws, `Unknown message type ${message.type}`);
     }
   }
 
@@ -537,13 +540,6 @@ class ChatRouter {
       }
 
       //confirmed signature, update counter tracking ephemeral key usage
-      this.logger.info('🔄 SUPPORTER SIGNATURE - UPDATING COUNTER:', {
-        userAddress: userAddress?.substring(0, 8) + '...',
-        oldCounter: delegation.counter,
-        newCounter: delegation.counter + 1,
-        timestamp: new Date().toISOString()
-      });
-      
       this.messageValidator.siweHandler.updateDelegationCounter(userAddress, delegation.counter+1);
 
       return {
@@ -639,6 +635,17 @@ class ChatRouter {
       room,
       messages,
       timestamp: new Date().toISOString()
+    });
+  }
+
+  handlePing(ws, data) {
+    const { timestamp } = data;
+    
+    // Respond with pong to maintain connection health
+    this.sendMessage(ws, {
+      type: 'pong',
+      timestamp: timestamp,
+      serverTimestamp: new Date().toISOString()
     });
   }
 

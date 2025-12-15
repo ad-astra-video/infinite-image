@@ -67,7 +67,7 @@ function buildX402TypedData(from, to, value, asset, network) {
       from: from,
       to: to,
       value: value.toString(),
-      validAfter: "0",
+      validAfter: (now-1).toString(),
       validBefore: (now + 3600).toString(), // Valid for 1 hour
       nonce: generateBytes32Nonce(),
     },

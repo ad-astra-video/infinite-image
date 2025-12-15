@@ -57,31 +57,11 @@ class ChatMessageValidator {
         if (delegation.counter !== undefined) {
           if (delegation.counter + 1 !== counter) {
             // Check if frontend counter is ahead (race condition scenario)
-            if (counter > delegation.counter + 1) {
-              this.logger.warn('⚠️ FRONTEND COUNTER AHEAD - RACE CONDITION DETECTED:', {
-                userAddress: userAddress?.substring(0, 8) + '...',
-                storedCounter: delegation.counter,
-                receivedCounter: counter,
-                aheadBy: counter - delegation.counter,
-                timestamp: new Date().toISOString(),
-                expiresAt: delegation.expiresAt
-              });
-              
-              // Update delegation counter to match frontend to prevent future mismatches
-              if (this.siweHandler) {
-                this.logger.info('🔄 UPDATING DELEGATION COUNTER TO MATCH FRONTEND:', {
-                  userAddress: userAddress?.substring(0, 8) + '...',
-                  oldCounter: delegation.counter,
-                  newCounter: counter - 1, // Set to counter - 1 so next message will be counter
-                  timestamp: new Date().toISOString()
-                });
-                this.siweHandler.updateDelegationCounter(userAddress, counter - 1);
-              }
-              
+            if (counter > delegation.counter + 1) {              
               // Allow the message through since frontend is ahead
-              this.logger.info('✅ Allowing message despite counter mismatch (frontend ahead)');
+              this.logger.info('Allowing message despite counter mismatch (frontend ahead)');
             } else {
-              this.logger.error('❌ COUNTER MISMATCH (BEHIND):', {
+              this.logger.error('COUNTER MISMATCH (BEHIND):', {
                 userAddress: userAddress?.substring(0, 8) + '...',
                 storedCounter: delegation.counter,
                 expectedCounter: delegation.counter + 1,
@@ -91,12 +71,6 @@ class ChatMessageValidator {
               })
               throw new Error(`Counter mismatch. Expected ${delegation.counter + 1}, received ${counter}`);
             }
-          } else {
-            this.logger.info('✅ Counter validation passed:', {
-              userAddress: userAddress?.substring(0, 8) + '...',
-              counter: counter,
-              timestamp: new Date().toISOString()
-            });
           }
         } else {
           this.logger.warn('No stored counter found - this may indicate first message or missing delegation update')
@@ -137,13 +111,6 @@ class ChatMessageValidator {
           })
           throw new Error(`Counter mismatch on update. Expected ${delegation.counter + 1}, received ${counter}`);
         }
-        
-        this.logger.info('🔄 UPDATING COUNTER:', {
-          userAddress: userAddress?.substring(0, 8) + '...',
-          oldCounter: delegation.counter,
-          newCounter: counter,
-          timestamp: new Date().toISOString()
-        });
         
         // Update the delegation in the store
         if (this.siweHandler) {

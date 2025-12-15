@@ -68,7 +68,7 @@ function buildX402TypedData(from, to, value, asset, network) {
       from: from,
       to: to,
       value: value.toString(),
-      validAfter: now.toString(),
+      validAfter: (now-1).toString(),
       validBefore: (now + 3600).toString(), // Valid for 1 hour
       nonce: generateBytes32Nonce(),
     },
@@ -100,6 +100,7 @@ function createSweepTask({ depositAddress, depositPrivateKey, provider, sweepAdd
       const usdcContract = new ethers.Contract(USDC_CONTRACT_ADDRESS, USDC_ABI, provider);
       const balance = await usdcContract.balanceOf(depositAddress);
 
+      logger.info(`USDC balance of ${depositAddress}: ${balance.toString()}`);
       if (typeof balance === 'bigint') {
         if (balance < 10000n) { // .01 USDC (6 decimals)
           logger.info(`USDC balance below threshold (0.01 USDC), skipping sweep. Balance: ${balance}`);

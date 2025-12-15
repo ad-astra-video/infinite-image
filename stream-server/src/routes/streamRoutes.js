@@ -230,14 +230,26 @@ class StreamRouter {
           {
             headers: {
               "Authorization": `Bearer ${process.env.GATEWAY_API_KEY}`
-            }
+            },
+            validateStatus: (status) => status < 500 // Don't throw for 4xx errors
           }
         );
 
-        if (statusResp.status !== 200) {
-          this.logger.error(`Failed to check stream status: ${statusResp.status} ${statusResp.data}`);
-          throw new Error("Failed to check stream status");
-        }
+        if (statusResp.status === 404) {
+          // handle stream id does not exist
+          this.logger.info(`Stream ${streamId} does not exist on gateway`);
+          this.streamId = null;
+          this.streamRunning = false;
+          this.streamUrls = {};
+          return res.json({
+            stream_id: streamId,
+            alive: false,
+            whep_url: null,
+            status: 'not_found',
+            settings: null,
+            iframe_html: ''
+          });
+        } 
 
         const statusData = statusResp.data;
         const isAlive = statusData.whep_url && statusData.whep_url.trim() !== '';
@@ -274,8 +286,8 @@ class StreamRouter {
           iframe_html: savedSettings?.iframe_html || ''
         });
       } catch (error) {
-        this.logger.error(`Check stream status failed: ${error.message}`);
-        res.status(500).json({ error: error.message });
+        this.logger.error(`Failed to check stream status: ${statusResp.status} ${statusResp.data}`);
+        throw new Error("Failed to check stream status");
       }
     });
 
