@@ -501,7 +501,11 @@ class InfiniteFlux2StreamHandlers:
         Update configuration parameters dynamically.
         When start_image is received, initiate the video generation pipeline.
         """
-        #update params sent
+
+        #handle if params sent in key
+        if "params" in params:
+            params = params["params"]
+
         self.cfg.height = int(params.get("height", self.cfg.height))
         self.cfg.width = int(params.get("width", self.cfg.width))
         self.cfg.prompt = params.get("prompt", self.cfg.prompt)
