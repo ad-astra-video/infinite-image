@@ -113,7 +113,7 @@ class TipRouter {
         
         // Create and broadcast tip message using helper function
         const userAddress = tipRequest.userAddress || 'anonymous';
-        this.chatRouter.sendTipMessage('public', userAddress, tipRequest.msg, 'tip', '0.01');
+        this.chatRouter.sendTipMessage('public', userAddress, tipRequest.msg, '0.01');
         
         res.json({ tip: { amount_usd: 0.01, status: 'success' } });
       } catch (error) {
@@ -139,7 +139,7 @@ class TipRouter {
         
         // Create and broadcast tip message using helper function
         const userAddress = tipRequest.userAddress || 'anonymous';
-        this.chatRouter.sendTipMessage('public', userAddress, tipRequest.msg, 'tip', '0.05');
+        this.chatRouter.sendTipMessage('public', userAddress, tipRequest.msg, '0.05');
         
         res.json({ tip: { amount_usd: 0.05, status: 'success' } });
       } catch (error) {
@@ -165,7 +165,7 @@ class TipRouter {
         
         // Create and broadcast tip message using helper function
         const userAddress = tipRequest.userAddress || 'anonymous';
-        this.chatRouter.sendTipMessage('public', userAddress, tipRequest.msg, 'tip', '0.10');
+        this.chatRouter.sendTipMessage('public', userAddress, tipRequest.msg, '0.10');
         
         res.json({ tip: { amount_usd: 0.1, status: 'success' } });
       } catch (error) {
@@ -191,7 +191,7 @@ class TipRouter {
         
         // Create and broadcast tip message using helper function
         const userAddress = tipRequest.userAddress || 'anonymous';
-        this.chatRouter.sendTipMessage('public', userAddress, tipRequest.msg, 'tip', '0.25');
+        this.chatRouter.sendTipMessage('public', userAddress, tipRequest.msg, '0.25');
         
         res.json({ tip: { amount_usd: 0.25, status: 'success' } });
       } catch (error) {
@@ -217,7 +217,7 @@ class TipRouter {
         
         // Create and broadcast tip message using helper function
         const userAddress = tipRequest.userAddress || 'anonymous';
-        this.chatRouter.sendTipMessage('public', userAddress, tipRequest.msg, 'tip', '1.00');
+        this.chatRouter.sendTipMessage('public', userAddress, tipRequest.msg, '1.00');
         
         res.json({ tip: { amount_usd: 1.00, status: 'success' } });
       } catch (error) {
@@ -243,7 +243,7 @@ class TipRouter {
         
         // Create and broadcast tip message using helper function
         const userAddress = tipRequest.userAddress || 'anonymous';
-        this.chatRouter.sendTipMessage('public', userAddress, tipRequest.msg, 'tip', '5.00');
+        this.chatRouter.sendTipMessage('public', userAddress, tipRequest.msg, '5.00');
         
         res.json({ tip: { amount_usd: 5.00, status: 'success' } });
       } catch (error) {
@@ -269,7 +269,7 @@ class TipRouter {
         
         // Create and broadcast tip message using helper function
         const userAddress = tipRequest.userAddress || 'anonymous';
-        this.chatRouter.sendTipMessage('public', userAddress, tipRequest.msg, 'tip', '10.00');
+        this.chatRouter.sendTipMessage('public', userAddress, tipRequest.msg, '10.00');
         
         res.json({ tip: { amount_usd: 10.00, status: 'success' } });
       } catch (error) {
@@ -295,7 +295,7 @@ class TipRouter {
         
         // Create and broadcast tip message using helper function
         const userAddress = tipRequest.userAddress || 'anonymous';
-        this.chatRouter.sendTipMessage('public', userAddress, tipRequest.msg, 'tip', '25.00');
+        this.chatRouter.sendTipMessage('public', userAddress, tipRequest.msg, '25.00');
         
         res.json({ tip: { amount_usd: 25.00, status: 'success' } });
       } catch (error) {
