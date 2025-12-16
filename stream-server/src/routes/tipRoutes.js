@@ -112,7 +112,7 @@ class TipRouter {
         }
         
         // Create and broadcast tip message using helper function
-        const userAddress = tipRequest.userAddress || 'anonymous';
+        const userAddress = tipRequest.userAddress ? tipRequest.userAddress.toLowerCase() : 'anon';
         this.chatRouter.sendTipMessage('public', userAddress, tipRequest.msg, '0.01');
         
         res.json({ tip: { amount_usd: 0.01, status: 'success' } });
@@ -138,7 +138,7 @@ class TipRouter {
         }
         
         // Create and broadcast tip message using helper function
-        const userAddress = tipRequest.userAddress || 'anonymous';
+        const userAddress = tipRequest.userAddress ? tipRequest.userAddress.toLowerCase() : 'anon';
         this.chatRouter.sendTipMessage('public', userAddress, tipRequest.msg, '0.05');
         
         res.json({ tip: { amount_usd: 0.05, status: 'success' } });
@@ -164,7 +164,7 @@ class TipRouter {
         }
         
         // Create and broadcast tip message using helper function
-        const userAddress = tipRequest.userAddress || 'anonymous';
+        const userAddress = tipRequest.userAddress ? tipRequest.userAddress.toLowerCase() : 'anon';
         this.chatRouter.sendTipMessage('public', userAddress, tipRequest.msg, '0.10');
         
         res.json({ tip: { amount_usd: 0.1, status: 'success' } });
@@ -190,7 +190,7 @@ class TipRouter {
         }
         
         // Create and broadcast tip message using helper function
-        const userAddress = tipRequest.userAddress || 'anonymous';
+        const userAddress = tipRequest.userAddress ? tipRequest.userAddress.toLowerCase() : 'anon';
         this.chatRouter.sendTipMessage('public', userAddress, tipRequest.msg, '0.25');
         
         res.json({ tip: { amount_usd: 0.25, status: 'success' } });
@@ -216,7 +216,7 @@ class TipRouter {
         }
         
         // Create and broadcast tip message using helper function
-        const userAddress = tipRequest.userAddress || 'anonymous';
+        const userAddress = tipRequest.userAddress ? tipRequest.userAddress.toLowerCase() : 'anon';
         this.chatRouter.sendTipMessage('public', userAddress, tipRequest.msg, '1.00');
         
         res.json({ tip: { amount_usd: 1.00, status: 'success' } });
@@ -242,7 +242,7 @@ class TipRouter {
         }
         
         // Create and broadcast tip message using helper function
-        const userAddress = tipRequest.userAddress || 'anonymous';
+        const userAddress = tipRequest.userAddress ? tipRequest.userAddress.toLowerCase() : 'anon';
         this.chatRouter.sendTipMessage('public', userAddress, tipRequest.msg, '5.00');
         
         res.json({ tip: { amount_usd: 5.00, status: 'success' } });
@@ -268,7 +268,7 @@ class TipRouter {
         }
         
         // Create and broadcast tip message using helper function
-        const userAddress = tipRequest.userAddress || 'anonymous';
+        const userAddress = tipRequest.userAddress ? tipRequest.userAddress.toLowerCase() : 'anon';
         this.chatRouter.sendTipMessage('public', userAddress, tipRequest.msg, '10.00');
         
         res.json({ tip: { amount_usd: 10.00, status: 'success' } });
@@ -294,7 +294,7 @@ class TipRouter {
         }
         
         // Create and broadcast tip message using helper function
-        const userAddress = tipRequest.userAddress || 'anonymous';
+        const userAddress = tipRequest.userAddress ? tipRequest.userAddress.toLowerCase() : 'anon';
         this.chatRouter.sendTipMessage('public', userAddress, tipRequest.msg, '25.00');
         
         res.json({ tip: { amount_usd: 25.00, status: 'success' } });

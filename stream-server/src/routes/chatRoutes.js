@@ -653,12 +653,15 @@ class ChatRouter {
     const filteredMessage2 = profanity.clean(filteredMessage1);
     
     // Create chat message
+    const resolvedAddress = (validationResult.address || userData.address);
+    const resolvedDisplayName = validationResult.displayName || userData.displayName || this.getDisplayName(resolvedAddress);
+
     const chatMessage = {
       id: uuidv4(),
       message: filteredMessage2,
-      userAddress: validationResult.address || userData.address,
+      userAddress: resolvedAddress,
       userType: userData.type,
-      displayName: validationResult.displayName,
+      displayName: resolvedDisplayName,
       validated: validationResult.validated,
       timestamp: new Date().toISOString(),
       room: ws.userData.room,
@@ -815,11 +818,12 @@ class ChatRouter {
    */
   getDisplayNameFromWebSocket(userAddress) {
     // Search all rooms for this user address
+    const normalizedAddress = (userAddress || '').toLowerCase();
     for (const roomName of Object.keys(this.chatRooms)) {
       const room = this.chatRooms[roomName];
       for (const [ws, userData] of room.connectedUsers.entries()) {
-        if (userData.address === userAddress) {
-          return userData.displayName || this.getDisplayName(userAddress);
+        if ((userData.address || '').toLowerCase() === normalizedAddress) {
+          return userData.displayName || this.getDisplayName(normalizedAddress);
         }
       }
     }
@@ -849,8 +853,8 @@ class ChatRouter {
       messageType: 'tip',
       room: room,
       message: filteredMessage2 || `Thank you for the $${amount} tip!`,
-      userAddress: userAddress || 'anonymous',
-      sender: userAddress || 'anonymous',
+      userAddress: userAddress || 'anon',
+      sender: userAddress || 'anon',
       senderType: 'supporter',
       displayName: displayName,
       timestamp: new Date().toISOString(),
