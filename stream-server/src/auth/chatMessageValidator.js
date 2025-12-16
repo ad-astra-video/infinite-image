@@ -137,7 +137,7 @@ class ChatMessageValidator {
         validated: userAddress !== 'anon', // Anonymous users are not validated
         sessionType: userAddress === 'anon' ? 'anonymous' : 'delegation-store',
         ephemeral: userAddress === 'anon' ? null : delegation,
-        displayName: displayName || ""
+        displayName: displayName ? displayName.trim() : ""
       };
     } catch (error) {
       this.logger.warn('Chat message validation failed:', error.message);

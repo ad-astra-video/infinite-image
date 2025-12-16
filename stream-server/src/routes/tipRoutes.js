@@ -11,9 +11,6 @@ class TipRouter {
     this.chatRouter = chatRouter;
     this.router = express.Router();
 
-    // Local state
-    this.tipMsgs = [];
-
     // Setup payment middleware for tip endpoints with timeout handling
     this.router.use(paymentMiddleware(
       this.depositAddress,
@@ -106,7 +103,6 @@ class TipRouter {
     this.router.post('/api/tip/1', async (req, res) => {
       try {
         const tipRequest = new TipRequest(req.body);
-        this.tipMsgs.push({ msg: tipRequest.msg, level: 1, ts: Date.now() / 1000 });
         if (tipRequest.userAddress) {
           this.chatRouter.addSupporterUser(tipRequest.userAddress, 1);
         }
@@ -132,7 +128,6 @@ class TipRouter {
     this.router.post('/api/tip/5', async (req, res) => {
       try {
         const tipRequest = new TipRequest(req.body);
-        this.tipMsgs.push({ msg: tipRequest.msg, level: 5, ts: Date.now() / 1000 });
         if (req.body.userAddress) {
           this.chatRouter.addSupporterUser(req.body.userAddress, 5);
         }
@@ -158,7 +153,6 @@ class TipRouter {
     this.router.post('/api/tip/10', async (req, res) => {
       try {
         const tipRequest = new TipRequest(req.body);
-        this.tipMsgs.push({ msg: tipRequest.msg, level: 10, ts: Date.now() / 1000 });
         if (req.body.userAddress) {
           this.chatRouter.addSupporterUser(req.body.userAddress, 10);
         }
@@ -184,7 +178,6 @@ class TipRouter {
     this.router.post('/api/tip/25', async (req, res) => {
       try {
         const tipRequest = new TipRequest(req.body);
-        this.tipMsgs.push({ msg: tipRequest.msg, level: 25, ts: Date.now() / 1000 });
         if (req.body.userAddress) {
           this.chatRouter.addSupporterUser(req.body.userAddress, 25);
         }
@@ -210,7 +203,6 @@ class TipRouter {
     this.router.post('/api/tip/100', async (req, res) => {
       try {
         const tipRequest = new TipRequest(req.body);
-        this.tipMsgs.push({ msg: tipRequest.msg, level: 100, ts: Date.now() / 1000 });
         if (tipRequest.userAddress) {
           this.chatRouter.addSupporterUser(tipRequest.userAddress, 100);
         }
@@ -236,7 +228,6 @@ class TipRouter {
     this.router.post('/api/tip/500', async (req, res) => {
       try {
         const tipRequest = new TipRequest(req.body);
-        this.tipMsgs.push({ msg: tipRequest.msg, level: 500, ts: Date.now() / 1000 });
         if (tipRequest.userAddress) {
           this.chatRouter.addSupporterUser(tipRequest.userAddress, 500);
         }
@@ -262,7 +253,6 @@ class TipRouter {
     this.router.post('/api/tip/1000', async (req, res) => {
       try {
         const tipRequest = new TipRequest(req.body);
-        this.tipMsgs.push({ msg: tipRequest.msg, level: 1000, ts: Date.now() / 1000 });
         if (tipRequest.userAddress) {
           this.chatRouter.addSupporterUser(tipRequest.userAddress, 1000);
         }
@@ -288,7 +278,6 @@ class TipRouter {
     this.router.post('/api/tip/2500', async (req, res) => {
       try {
         const tipRequest = new TipRequest(req.body);
-        this.tipMsgs.push({ msg: tipRequest.msg, level: 2500, ts: Date.now() / 1000 });
         if (tipRequest.userAddress) {
           this.chatRouter.addSupporterUser(tipRequest.userAddress, 2500);
         }

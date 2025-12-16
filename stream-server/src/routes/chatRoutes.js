@@ -14,7 +14,57 @@ const rl = require('bad-words-next/lib/ru_lat')
 const ua = require('bad-words-next/lib/ua')
 const pl = require('bad-words-next/lib/pl')
 const ch = require('bad-words-next/lib/ch')
+// compound words are hard, try here...
+profanity.add([
+  // shit compounds
+  'shithead',
+  'shitface',
+  'shitbag',
+  'shitbrain',
+  'shitbrains',
+  'shitlord',
+  'shitstain',
+  'shitheel',
 
+  // fuck compounds
+  'fuckhead',
+  'fuckface',
+  'fuckwad',
+  'fuckwit',
+  'fuckstick',
+  'fucktard',
+
+  // ass compounds
+  'asshole',
+  'asshat',
+  'asswipe',
+  'assface',
+  'assclown',
+  'assmunch',
+  'assbag',
+
+  // bitch compounds
+  'bitchass',
+  'bitchface',
+  'bitchboy',
+
+  // dick compounds
+  'dickhead',
+  'dickface',
+  'dickwad',
+  'dickbag',
+
+  // cunt compounds (use carefully)
+  'cuntface',
+  'cuntbag',
+
+  // misc common insults
+  'pisshead',
+  'scumbag',
+  'dumbfuck',
+  'jackass',
+  'butthead',
+])
 
 /**
  * Rate limiter for anonymous users in public chat
@@ -638,14 +688,17 @@ class ChatRouter {
     
     // Update displayName in ws.userData if provided in validation result
     if (validationResult.displayName && validationResult.displayName !== userData.displayName) {
+      // Filter the displayName through profanity filters before setting it
+      const filteredDisplayName = this.getDisplayName(validationResult.address || userData.address, validationResult.displayName);
+      
       // Update ws.userData
-      ws.userData.displayName = validationResult.displayName;
+      ws.userData.displayName = filteredDisplayName;
       
       // Update connectedUsers map
-      const updatedUserData = { ...userData, displayName: validationResult.displayName };
+      const updatedUserData = { ...userData, displayName: filteredDisplayName };
       this.chatRooms[ws.userData.room].connectedUsers.set(ws, updatedUserData);
       
-      this.logger.info(`Updated displayName for ${validationResult.address || userData.address} to: ${validationResult.displayName}`);
+      this.logger.info(`Updated displayName for ${validationResult.address || userData.address} to: ${filteredDisplayName}`);
     }
     
     // Filter content through both bad words filters for comprehensive coverage
@@ -654,7 +707,7 @@ class ChatRouter {
     
     // Create chat message
     const resolvedAddress = (validationResult.address || userData.address);
-    const resolvedDisplayName = validationResult.displayName || userData.displayName || this.getDisplayName(resolvedAddress);
+    const resolvedDisplayName = ws.userData.displayName;
 
     const chatMessage = {
       id: uuidv4(),
