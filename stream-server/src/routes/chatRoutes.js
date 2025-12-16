@@ -636,6 +636,18 @@ class ChatRouter {
     const userData = this.chatRooms[ws.userData.room]?.connectedUsers.get(ws);
     if (!userData) return;
     
+    // Update displayName in ws.userData if provided in validation result
+    if (validationResult.displayName && validationResult.displayName !== userData.displayName) {
+      // Update ws.userData
+      ws.userData.displayName = validationResult.displayName;
+      
+      // Update connectedUsers map
+      const updatedUserData = { ...userData, displayName: validationResult.displayName };
+      this.chatRooms[ws.userData.room].connectedUsers.set(ws, updatedUserData);
+      
+      this.logger.info(`Updated displayName for ${validationResult.address || userData.address} to: ${validationResult.displayName}`);
+    }
+    
     // Filter content through both bad words filters for comprehensive coverage
     const filteredMessage1 = this.badWordsFilter.filter(message);
     const filteredMessage2 = profanity.clean(filteredMessage1);
@@ -794,6 +806,57 @@ class ChatRouter {
     }
     // For non-validated users, show as anonymous
     return 'anonymous';
+  }
+
+  /**
+   * Get display name from WebSocket user data for a specific address
+   * @param {string} userAddress - User's address to lookup
+   * @returns {string} Display name from WebSocket connection or fallback to default
+   */
+  getDisplayNameFromWebSocket(userAddress) {
+    // Search all rooms for this user address
+    for (const roomName of Object.keys(this.chatRooms)) {
+      const room = this.chatRooms[roomName];
+      for (const [ws, userData] of room.connectedUsers.entries()) {
+        if (userData.address === userAddress) {
+          return userData.displayName || this.getDisplayName(userAddress);
+        }
+      }
+    }
+    
+    // Fallback to default display name logic
+    return this.getDisplayName(userAddress);
+  }
+
+  /**
+   * Send tip message to chat room with proper displayName from WebSocket
+   * @param {string} room - Chat room to broadcast to
+   * @param {string} userAddress - User's address
+   * @param {string} message - Tip message content
+   * @param {string} messageType - Type of tip message
+   * @param {string} amount - Tip amount for default message
+   * @returns {object} Tip message object
+   */
+  sendTipMessage(room, userAddress, message, amount) {
+    const displayName = this.getDisplayNameFromWebSocket(userAddress);
+    
+    const tipMessage = {
+      type: 'chat_message',
+      messageType: 'tip',
+      room: room,
+      message: message || `Thank you for the $${amount} tip!`,
+      userAddress: userAddress || 'anonymous',
+      sender: userAddress || 'anonymous',
+      senderType: 'supporter',
+      displayName: displayName,
+      timestamp: new Date().toISOString(),
+      id: `tip-${Date.now()}-${Math.floor(Math.random() * 1000)}`
+    };
+    
+    // Broadcast the message to the room
+    this.broadcastToRoom(room, 'chat_message', tipMessage);
+    
+    return tipMessage;
   }
 
   getRouter() {
