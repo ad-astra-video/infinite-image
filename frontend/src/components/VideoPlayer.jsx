@@ -377,16 +377,19 @@ function VideoPlayer({
           })
 
           if (!retry.ok) {
-            const errText = await retry.text().catch(() => retry.statusText)
-            throw new Error(errText || `HTTP ${retry.status}`)
+            // Handle specific HTTP status codes
+            if (retry.status === 408) {
+              // Timeout error from facilitator
+              const errorData = await retry.json().catch(() => null)
+              const timeoutMessage = errorData?.error || 'Facilitator timed out verifying transaction, please try again shortly.'
+              throw new Error(timeoutMessage)
+            } else {
+              const errText = await retry.text().catch(() => retry.statusText)
+              throw new Error(errText || `HTTP ${retry.status}`)
+            }
           }
         } catch (signErr) {
           throw signErr
-        }
-      } else {
-        if (!response.ok) {
-          const errText = await response.text().catch(() => response.statusText)
-          throw new Error(errText || `HTTP ${response.status}`)
         }
       }
 
