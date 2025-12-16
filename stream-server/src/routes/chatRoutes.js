@@ -839,12 +839,16 @@ class ChatRouter {
    */
   sendTipMessage(room, userAddress, message, amount) {
     const displayName = this.getDisplayNameFromWebSocket(userAddress);
-    
+        
+    // Filter content through both bad words filters for comprehensive coverage
+    const filteredMessage1 = this.badWordsFilter.filter(message);
+    const filteredMessage2 = profanity.clean(filteredMessage1);
+
     const tipMessage = {
       type: 'chat_message',
       messageType: 'tip',
       room: room,
-      message: message || `Thank you for the $${amount} tip!`,
+      message: filteredMessage2 || `Thank you for the $${amount} tip!`,
       userAddress: userAddress || 'anonymous',
       sender: userAddress || 'anonymous',
       senderType: 'supporter',
@@ -853,6 +857,9 @@ class ChatRouter {
       id: `tip-${Date.now()}-${Math.floor(Math.random() * 1000)}`
     };
     
+    // Store message
+    this.chatRooms[room].messages.push(tipMessage);
+
     // Broadcast the message to the room
     this.broadcastToRoom(room, 'chat_message', tipMessage);
     
