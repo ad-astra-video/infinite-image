@@ -72,26 +72,40 @@ profanity.add([
  */
 class AnonymousRateLimiter {
   constructor() {
-    this.messageTimestamps = new Map(); // Map<userAddress, timestamp>
+    this.messageTimestamps = new Map(); // Map<connectionId, timestamp>
     this.rateLimitMs = 60000; // 1 minute = 60000ms
   }
 
   /**
+   * Generate unique connection identifier for anonymous users
+   * @param {WebSocket} ws - WebSocket connection
+   * @returns {string} Unique connection identifier
+   */
+  generateConnectionId(ws) {
+    // Use WebSocket remote address and a unique identifier
+    const remoteAddress = ws._socket?.remoteAddress || 'unknown';
+    const timestamp = Date.now();
+    return `anon_${remoteAddress}_${timestamp}`;
+  }
+
+  /**
    * Check if user can send a message based on rate limiting
+   * @param {WebSocket} ws - WebSocket connection
    * @param {string} userAddress - User's address (or 'anon' for anonymous)
    * @returns {object} { allowed: boolean, remainingTime?: number }
    */
-  canSendMessage(userAddress) {
+  canSendMessage(ws, userAddress) {
     // Only apply rate limiting to anonymous users
     if (userAddress !== 'anon') {
       return { allowed: true };
     }
 
+    const connectionId = this.generateConnectionId(ws);
     const now = Date.now();
-    const lastMessageTime = this.messageTimestamps.get(userAddress);
+    const lastMessageTime = this.messageTimestamps.get(connectionId);
 
     if (!lastMessageTime) {
-      // First message from this user
+      // First message from this connection
       return { allowed: true };
     }
 
@@ -109,12 +123,15 @@ class AnonymousRateLimiter {
   }
 
   /**
-   * Update the last message timestamp for a user
+   * Update the last message timestamp for a connection
+   * @param {WebSocket} ws - WebSocket connection
    * @param {string} userAddress - User's address
    */
-  updateLastMessageTime(userAddress) {
+  updateLastMessageTime(ws, userAddress) {
     if (userAddress === 'anon') {
-      this.messageTimestamps.set(userAddress, Date.now());
+      const connectionId = this.generateConnectionId(ws);
+      const timestamp = Date.now();
+      this.messageTimestamps.set(connectionId, timestamp);
     }
   }
 
@@ -511,7 +528,7 @@ class ChatRouter {
     
     // Check rate limiting for anonymous users in public chat
     if (ws.userData.room === 'public' && userData.address === 'anon') {
-      const rateLimitCheck = this.anonymousRateLimiter.canSendMessage(userData.address);
+      const rateLimitCheck = this.anonymousRateLimiter.canSendMessage(ws, userData.address);
       if (!rateLimitCheck.allowed) {
         // Send rate_limit response instead of error
         this.sendMessage(ws, {
@@ -734,10 +751,10 @@ class ChatRouter {
     
     // Update rate limiter timestamp for anonymous users
     if (ws.userData.room === 'public' && userData.address === 'anon') {
-      this.anonymousRateLimiter.updateLastMessageTime(userData.address);
+      this.anonymousRateLimiter.updateLastMessageTime(ws, userData.address);
     }
     
-    this.logger.info(`Chat message from ${validationResult.address || userData.address} in ${ws.userData.room}`);
+    //this.logger.info(`Chat message from ${validationResult.address || userData.address} in ${ws.userData.room}`);
   }
 
   handleGetHistory(ws, data) {
