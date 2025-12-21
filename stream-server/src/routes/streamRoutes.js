@@ -226,7 +226,7 @@ class StreamRouter {
         this.logger.info(`Checking status for streamId: ${streamId}`);
 
         const statusResp = await axios.get(
-          `${process.env.GATEWAY_URL || "https://gateway.muxion.video"}/ai/stream/${streamId}/status`,
+          `${process.env.GATEWAY_URL || "https://gateway.muxion.video"}/process/stream/${streamId}/status`,
           {
             headers: {
               "Authorization": `Bearer ${process.env.GATEWAY_API_KEY}`
@@ -343,7 +343,7 @@ class StreamRouter {
 
         // Check stream status from gateway
         const statusResp = await axios.get(
-          `${process.env.GATEWAY_URL || "https://gateway.muxion.video"}/ai/stream/${streamId}/status`,
+          `${process.env.GATEWAY_URL || "https://gateway.muxion.video"}/process/stream/${streamId}/status`,
           {
             headers: {
               "Authorization": `Bearer ${process.env.GATEWAY_API_KEY}`
@@ -488,7 +488,7 @@ class StreamRouter {
       }
 
       const startResp = await axios.post(
-        `${process.env.GATEWAY_URL || "https://gateway.muxion.video"}/ai/stream/start`,
+        `${process.env.GATEWAY_URL || "https://gateway.muxion.video"}/process/stream/start`,
         streamRequest,
         {
           headers: {
@@ -590,7 +590,7 @@ class StreamRouter {
 
     try {
       const updateResp = await axios.post(
-        `${process.env.GATEWAY_URL || "https://gateway.muxion.video"}/ai/stream/${this.streamId}/update`,
+        `${process.env.GATEWAY_URL || "https://gateway.muxion.video"}/process/stream/${this.streamId}/update`,
         { params: filteredParams },
         { headers: { 
             "Livepeer": Buffer.from(JSON.stringify(livepeerHdr)).toString("base64"),
@@ -657,7 +657,7 @@ class StreamRouter {
       this.logger.info(`Stopping stream with streamId: ${this.streamId}`);
 
       const stopResp = await axios.post(
-        `${process.env.GATEWAY_URL || "https://gateway.muxion.video"}/ai/stream/${this.streamId}/stop`,
+        `${process.env.GATEWAY_URL || "https://gateway.muxion.video"}/process/stream/${this.streamId}/stop`,
         {},
         {
           headers: {
