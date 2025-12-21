@@ -92,13 +92,14 @@ function createSweepTask({ depositAddress, depositPrivateKey, provider, sweepAdd
   const facilitatorConfig = facilitatorUrl ? { url: facilitatorUrl } : undefined;
   const actualFacilitatorUrl = facilitatorUrl || 'https://x402.org/facilitator';
   logger.info(`Using facilitator: ${actualFacilitatorUrl}`);
-  
-  const { verify, settle, supported } = useFacilitator(facilitatorConfig);
-  
+    
   async function sweepUsdc() {
+   
+    let balance = null;
+    // get USDC balance of address
     try {
       const usdcContract = new ethers.Contract(USDC_CONTRACT_ADDRESS, USDC_ABI, provider);
-      const balance = await usdcContract.balanceOf(depositAddress);
+       balance = await usdcContract.balanceOf(depositAddress);
 
       logger.info(`USDC balance of ${depositAddress}: ${balance.toString()}`);
       if (typeof balance === 'bigint') {
@@ -106,7 +107,16 @@ function createSweepTask({ depositAddress, depositPrivateKey, provider, sweepAdd
           logger.info(`USDC balance below threshold (0.01 USDC), skipping sweep. Balance: ${balance}`);
           return;
         }
+      } else {
+        logger.warn("USDC balance is not a bigint, cannot compare to threshold");
       }
+    } catch (balanceError) {
+      logger.error(`Error fetching USDC balance: ${balanceError.message}`);
+      return;
+    }
+    
+    // Proceed with sweep using x402
+    try {
 
       logger.info(`Starting USDC x402 Sweep with ${facilitatorUrl}`);
       

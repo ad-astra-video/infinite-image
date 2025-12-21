@@ -5,9 +5,11 @@ import { API_BASE } from '../utils/apiConfig'
 import DisplayNameModal from './DisplayNameModal'
 import { useWebSocket } from '../hooks/useWebSocket'
 import WebSocketStatus from './WebSocketStatus'
+import { useToastContext } from './ToastProvider'
 
 function ChatInterface() {
   const wallet = useWallet()
+  const { showToast } = useToastContext()
   const [activeTab, setActiveTab] = useState('public')
   const [publicMessages, setPublicMessages] = useState([])
   const [supporterMessages, setSupporterMessages] = useState([])

@@ -30,7 +30,7 @@
     "web3": "^4.2.2",
     "winston": "^3.11.0",
     "ws": "^8.14.2",
-    "x402-express": "^0.7.3"
+    "x402-express": "^1.0.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.1"

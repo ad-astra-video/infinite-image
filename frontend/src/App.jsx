@@ -5,6 +5,7 @@ import WalletConnect from './components/WalletConnect'
 import ChatInterface from './components/ChatInterface'
 import VideoPlayer from './components/VideoPlayer'
 import AdminPanel from './components/AdminPanel'
+import { ToastProvider } from './components/ToastProvider'
 import { useWallet } from './components/WalletConnect'
 
 function App() {
@@ -68,7 +69,8 @@ function App() {
   }
 
   return (
-    <div className="app">
+    <ToastProvider>
+      <div className="app">
 
       {/* Main content container with video and chat */}
       <div className="main-content-container">
@@ -114,7 +116,8 @@ function App() {
           }
         }}
       />
-    </div>
+      </div>
+    </ToastProvider>
   )
 }
 

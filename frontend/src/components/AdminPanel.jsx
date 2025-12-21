@@ -2,14 +2,15 @@ import React, { useState, useEffect } from 'react';
 import { Plus, Minus, Play, Square, Eye, Settings2, ChevronDown, ChevronUp, CheckCircle, AlertTriangle, AlertCircle, Info, X } from 'lucide-react';
 import { useWallet } from './WalletConnect';
 import { API_BASE } from '../utils/apiConfig';
-import { Toast, ToastContainer } from './Toast';
+import { useToastContext } from './ToastProvider';
 
 /**
  * Admin Panel Component
  * Provides broadcasting stream management for authorized wallets
  */
-const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => { 
+const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
   const { address, isConnected, enhancedAuth } = useWallet();
+  const { showToast } = useToastContext();
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(false);
   
@@ -64,17 +65,13 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
   const [manualStreamId, setManualStreamId] = useState('');
   const [recoveringStream, setRecoveringStream] = useState(false);
 
-  // Notification state
-  const [notification, setNotification] = useState(null);
-  
   // Help text state
   const [showResolutionHelp, setShowResolutionHelp] = useState(false);
   const [showRequiredFieldsHelp, setShowRequiredFieldsHelp] = useState(false);
 
-  // Show notification helper
+  // Show notification helper - now uses centralized toast
   const showNotification = (message, type = 'info') => {
-    setNotification({ message, type });
-    setTimeout(() => setNotification(null), 5000);
+    showToast(message, type);
   };
 
   // Check if user is admin (matches CREATOR_ADDRESS)
@@ -471,42 +468,7 @@ const AdminPanel = ({ isOpen, onStreamUpdate, onAdminButtonClick }) => {
               </button>
             </div>
             
-            {/* Notification Area */}
-            {notification && (
-              <div style={{
-                position: 'absolute',
-                top: '10px',
-                left: '50%',
-                transform: 'translateX(-50%)',
-                zIndex: 1000,
-                width: '90%',
-                maxWidth: '400px'
-              }}>
-                <div className="toast" style={{
-                  position: 'relative',
-                  transform: 'none',
-                  margin: '0 auto'
-                }}>
-                  <div className="toast-content">
-                    <div className={`toast-icon ${notification.type}`}>
-                      {notification.type === 'success' && <CheckCircle className="w-5 h-5 text-green-500" />}
-                      {notification.type === 'warning' && <AlertTriangle className="w-5 h-5 text-yellow-500" />}
-                      {notification.type === 'error' && <AlertCircle className="w-5 h-5 text-red-500" />}
-                      {notification.type === 'info' && <Info className="w-5 h-5 text-blue-500" />}
-                    </div>
-                    <div className="toast-text">
-                      <p>{notification.message}</p>
-                    </div>
-                    <button
-                      onClick={() => setNotification(null)}
-                      className="toast-close"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
+            {/* Notification Area - removed, now using centralized toast system */}
             
             <div className="admin-content">
               {/* Stream Status */}

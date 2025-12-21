@@ -14,7 +14,57 @@ const rl = require('bad-words-next/lib/ru_lat')
 const ua = require('bad-words-next/lib/ua')
 const pl = require('bad-words-next/lib/pl')
 const ch = require('bad-words-next/lib/ch')
+// compound words are hard, try here...
+profanity.add([
+  // shit compounds
+  'shithead',
+  'shitface',
+  'shitbag',
+  'shitbrain',
+  'shitbrains',
+  'shitlord',
+  'shitstain',
+  'shitheel',
 
+  // fuck compounds
+  'fuckhead',
+  'fuckface',
+  'fuckwad',
+  'fuckwit',
+  'fuckstick',
+  'fucktard',
+
+  // ass compounds
+  'asshole',
+  'asshat',
+  'asswipe',
+  'assface',
+  'assclown',
+  'assmunch',
+  'assbag',
+
+  // bitch compounds
+  'bitchass',
+  'bitchface',
+  'bitchboy',
+
+  // dick compounds
+  'dickhead',
+  'dickface',
+  'dickwad',
+  'dickbag',
+
+  // cunt compounds (use carefully)
+  'cuntface',
+  'cuntbag',
+
+  // misc common insults
+  'pisshead',
+  'scumbag',
+  'dumbfuck',
+  'jackass',
+  'butthead',
+])
 
 /**
  * Rate limiter for anonymous users in public chat
@@ -22,26 +72,40 @@ const ch = require('bad-words-next/lib/ch')
  */
 class AnonymousRateLimiter {
   constructor() {
-    this.messageTimestamps = new Map(); // Map<userAddress, timestamp>
+    this.messageTimestamps = new Map(); // Map<connectionId, timestamp>
     this.rateLimitMs = 60000; // 1 minute = 60000ms
   }
 
   /**
+   * Generate unique connection identifier for anonymous users
+   * @param {WebSocket} ws - WebSocket connection
+   * @returns {string} Unique connection identifier
+   */
+  generateConnectionId(ws) {
+    // Use WebSocket remote address and a unique identifier
+    const remoteAddress = ws._socket?.remoteAddress || 'unknown';
+    const timestamp = Date.now();
+    return `anon_${remoteAddress}_${timestamp}`;
+  }
+
+  /**
    * Check if user can send a message based on rate limiting
+   * @param {WebSocket} ws - WebSocket connection
    * @param {string} userAddress - User's address (or 'anon' for anonymous)
    * @returns {object} { allowed: boolean, remainingTime?: number }
    */
-  canSendMessage(userAddress) {
+  canSendMessage(ws, userAddress) {
     // Only apply rate limiting to anonymous users
     if (userAddress !== 'anon') {
       return { allowed: true };
     }
 
+    const connectionId = this.generateConnectionId(ws);
     const now = Date.now();
-    const lastMessageTime = this.messageTimestamps.get(userAddress);
+    const lastMessageTime = this.messageTimestamps.get(connectionId);
 
     if (!lastMessageTime) {
-      // First message from this user
+      // First message from this connection
       return { allowed: true };
     }
 
@@ -59,12 +123,15 @@ class AnonymousRateLimiter {
   }
 
   /**
-   * Update the last message timestamp for a user
+   * Update the last message timestamp for a connection
+   * @param {WebSocket} ws - WebSocket connection
    * @param {string} userAddress - User's address
    */
-  updateLastMessageTime(userAddress) {
+  updateLastMessageTime(ws, userAddress) {
     if (userAddress === 'anon') {
-      this.messageTimestamps.set(userAddress, Date.now());
+      const connectionId = this.generateConnectionId(ws);
+      const timestamp = Date.now();
+      this.messageTimestamps.set(connectionId, timestamp);
     }
   }
 
@@ -162,6 +229,58 @@ class ChatRouter {
       this.chatRooms[room].messages = [];
       this.logger.info(`Chat room ${room} cleared`);
       res.json({ message: 'Chat room cleared successfully' });
+    });
+
+    // ENS name verification endpoint
+    this.router.post('/verify-ens', async (req, res) => {
+      try {
+        const { query, ensName } = req.body;
+        
+        if (!query || !ensName) {
+          return res.status(400).json({ error: 'Missing query or ensName' });
+        }
+
+        const GRAPH_API_KEY = process.env.GRAPH_API_KEY;
+        const GRAPH_QUERY_URL = process.env.GRAPH_QUERY_URL;
+
+        if (!GRAPH_API_KEY || !GRAPH_QUERY_URL) {
+          return res.status(500).json({ error: 'Graph API configuration missing' });
+        }
+
+        const response = await fetch(GRAPH_QUERY_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${GRAPH_API_KEY}`
+          },
+          body: JSON.stringify({ query })
+        });
+
+        if (!response.ok) {
+          throw new Error(`GraphQL request failed: ${response.status}`);
+        }
+
+        const result = await response.json();
+        
+        if (result.errors) {
+          this.logger.error('GraphQL errors:', result.errors);
+          return res.status(500).json({ error: 'GraphQL query failed' });
+        }
+
+        const domains = result.data?.domains || [];
+        const domainNames = domains.map(domain => domain.name.toLowerCase());
+        const isValidENS = domainNames.includes(ensName.toLowerCase());
+
+        this.logger.info(`ENS verification for ${ensName}: ${isValidENS ? 'valid' : 'invalid'}`);
+        
+        res.json({
+          valid: isValidENS,
+          data: result.data
+        });
+      } catch (error) {
+        this.logger.error('ENS verification error:', error);
+        res.status(500).json({ error: 'Failed to verify ENS name' });
+      }
     });
   }
 
@@ -409,7 +528,7 @@ class ChatRouter {
     
     // Check rate limiting for anonymous users in public chat
     if (ws.userData.room === 'public' && userData.address === 'anon') {
-      const rateLimitCheck = this.anonymousRateLimiter.canSendMessage(userData.address);
+      const rateLimitCheck = this.anonymousRateLimiter.canSendMessage(ws, userData.address);
       if (!rateLimitCheck.allowed) {
         // Send rate_limit response instead of error
         this.sendMessage(ws, {
@@ -584,17 +703,35 @@ class ChatRouter {
     const userData = this.chatRooms[ws.userData.room]?.connectedUsers.get(ws);
     if (!userData) return;
     
+    // Update displayName in ws.userData if provided in validation result
+    if (validationResult.displayName && validationResult.displayName !== userData.displayName) {
+      // Filter the displayName through profanity filters before setting it
+      const filteredDisplayName = this.getDisplayName(validationResult.address || userData.address, validationResult.displayName);
+      
+      // Update ws.userData
+      ws.userData.displayName = filteredDisplayName;
+      
+      // Update connectedUsers map
+      const updatedUserData = { ...userData, displayName: filteredDisplayName };
+      this.chatRooms[ws.userData.room].connectedUsers.set(ws, updatedUserData);
+      
+      this.logger.info(`Updated displayName for ${validationResult.address || userData.address} to: ${filteredDisplayName}`);
+    }
+    
     // Filter content through both bad words filters for comprehensive coverage
     const filteredMessage1 = this.badWordsFilter.filter(message);
     const filteredMessage2 = profanity.clean(filteredMessage1);
     
     // Create chat message
+    const resolvedAddress = (validationResult.address || userData.address);
+    const resolvedDisplayName = ws.userData.displayName;
+
     const chatMessage = {
       id: uuidv4(),
       message: filteredMessage2,
-      userAddress: validationResult.address || userData.address,
+      userAddress: resolvedAddress,
       userType: userData.type,
-      displayName: validationResult.displayName,
+      displayName: resolvedDisplayName,
       validated: validationResult.validated,
       timestamp: new Date().toISOString(),
       room: ws.userData.room,
@@ -614,10 +751,10 @@ class ChatRouter {
     
     // Update rate limiter timestamp for anonymous users
     if (ws.userData.room === 'public' && userData.address === 'anon') {
-      this.anonymousRateLimiter.updateLastMessageTime(userData.address);
+      this.anonymousRateLimiter.updateLastMessageTime(ws, userData.address);
     }
     
-    this.logger.info(`Chat message from ${validationResult.address || userData.address} in ${ws.userData.room}`);
+    //this.logger.info(`Chat message from ${validationResult.address || userData.address} in ${ws.userData.room}`);
   }
 
   handleGetHistory(ws, data) {
@@ -742,6 +879,65 @@ class ChatRouter {
     }
     // For non-validated users, show as anonymous
     return 'anonymous';
+  }
+
+  /**
+   * Get display name from WebSocket user data for a specific address
+   * @param {string} userAddress - User's address to lookup
+   * @returns {string} Display name from WebSocket connection or fallback to default
+   */
+  getDisplayNameFromWebSocket(userAddress) {
+    // Search all rooms for this user address
+    const normalizedAddress = (userAddress || '').toLowerCase();
+    for (const roomName of Object.keys(this.chatRooms)) {
+      const room = this.chatRooms[roomName];
+      for (const [ws, userData] of room.connectedUsers.entries()) {
+        if ((userData.address || '').toLowerCase() === normalizedAddress) {
+          return userData.displayName || this.getDisplayName(normalizedAddress);
+        }
+      }
+    }
+    
+    // Fallback to default display name logic
+    return this.getDisplayName(userAddress);
+  }
+
+  /**
+   * Send tip message to chat room with proper displayName from WebSocket
+   * @param {string} room - Chat room to broadcast to
+   * @param {string} userAddress - User's address
+   * @param {string} message - Tip message content
+   * @param {string} messageType - Type of tip message
+   * @param {string} amount - Tip amount for default message
+   * @returns {object} Tip message object
+   */
+  sendTipMessage(room, userAddress, message, amount) {
+    const displayName = this.getDisplayNameFromWebSocket(userAddress);
+        
+    // Filter content through both bad words filters for comprehensive coverage
+    const filteredMessage1 = this.badWordsFilter.filter(message);
+    const filteredMessage2 = profanity.clean(filteredMessage1);
+
+    const tipMessage = {
+      type: 'chat_message',
+      messageType: 'tip',
+      room: room,
+      message: filteredMessage2 || `Thank you for the $${amount} tip!`,
+      userAddress: userAddress || 'anon',
+      sender: userAddress || 'anon',
+      senderType: 'supporter',
+      displayName: displayName,
+      timestamp: new Date().toISOString(),
+      id: `tip-${Date.now()}-${Math.floor(Math.random() * 1000)}`
+    };
+    
+    // Store message
+    this.chatRooms[room].messages.push(tipMessage);
+
+    // Broadcast the message to the room
+    this.broadcastToRoom(room, 'chat_message', tipMessage);
+    
+    return tipMessage;
   }
 
   getRouter() {

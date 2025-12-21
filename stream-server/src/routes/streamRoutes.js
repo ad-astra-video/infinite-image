@@ -651,7 +651,8 @@ class StreamRouter {
   async stopStream(req = null) {
     try {
       if (!this.streamRunning || !this.streamId) {
-        throw new Error("No active stream to stop");
+        this.logger.warn("No active stream to stop");
+        return { success: true, message: "No active stream to stop" };
       }
 
       this.logger.info(`Stopping stream with streamId: ${this.streamId}`);
@@ -662,14 +663,18 @@ class StreamRouter {
         {
           headers: {
             "Authorization": `Bearer ${process.env.GATEWAY_API_KEY}`
-          }
+          },
+          timeout: 10000 // 10 second timeout for stop request
         }
       );
 
       if (stopResp.status !== 200) {
-        this.logger.error(`Failed to stop stream: ${stopResp.status} ${stopResp.data}`);
-        throw new Error("Failed to stop stream");
+        const errorMsg = `Failed to stop stream: HTTP ${stopResp.status} - ${JSON.stringify(stopResp.data)}`;
+        this.logger.error(errorMsg);
+        throw new Error(errorMsg);
       }
+
+      this.logger.info(`Stream ${this.streamId} stopped successfully`);
 
       // Clean up local state
       this.streamRunning = false;
@@ -690,6 +695,20 @@ class StreamRouter {
       this.logger.error(`Stop stream failed: ${error.message}`);
       throw error;
     }
+  }
+
+  // Check if there's an active stream that needs to be stopped
+  hasActiveStream() {
+    return this.streamRunning && this.streamId;
+  }
+
+  // Get stream status for shutdown logging
+  getStreamStatus() {
+    return {
+      running: this.streamRunning,
+      streamId: this.streamId,
+      hasWebRTC: this.webRTCBroadcasting?.isBroadcasting || false
+    };
   }
 
   setupStreamControl(req, controlMinutes) {

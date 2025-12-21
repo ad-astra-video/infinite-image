@@ -19,7 +19,7 @@ import {
 import { useWallet } from './WalletConnect'
 import { API_BASE } from '../utils/apiConfig'
 import AdminPanel from './AdminPanel'
-import { Toast, ToastContainer } from './Toast'
+import { useToastContext } from './ToastProvider'
 
 // Check if user is admin before showing admin button
 function useAdminCheck(address, isConnected, enhancedAuth) {
@@ -61,6 +61,7 @@ function VideoPlayer({
   onStreamUpdate
 }) {
   const wallet = useWallet()
+  const { showToast } = useToastContext()
   const isAdmin = useAdminCheck(wallet.address, wallet.isConnected, wallet.enhancedAuth)
  
   function buildXPaymentHeader(authorization, signature, x402Version, x402scheme, network) {
@@ -83,8 +84,6 @@ function VideoPlayer({
   const [tipJarOpen, setTipJarOpen] = useState(false)
   const [tipMessage, setTipMessage] = useState('')
   const [loading, setLoading] = useState(false)
-  const [tipError, setTipError] = useState('')
-  const [showTipToast, setShowTipToast] = useState(false)
 
   // YouTube-style video player state
   const [isPlaying, setIsPlaying] = useState(false)
@@ -340,13 +339,11 @@ function VideoPlayer({
   const handleTip = async (amount, message = '') => {
     console.log('handleTip called with amount:', amount, 'message:', message, 'walletConnected:', wallet.connected)
     setLoading(true)
-    setTipError('')
     
     if (!wallet.connected) {
       console.error('handleTip: Wallet not connected according to context')
-      setTipError('Wallet not connected')
+      showToast('Wallet not connected', 'error')
       setLoading(false)
-      setShowTipToast(true)
       return
     }
     const tipBody = { "msg": message, "userAddress": wallet.address || wallet.loginAddress }
@@ -380,16 +377,19 @@ function VideoPlayer({
           })
 
           if (!retry.ok) {
-            const errText = await retry.text().catch(() => retry.statusText)
-            throw new Error(errText || `HTTP ${retry.status}`)
+            // Handle specific HTTP status codes
+            if (retry.status === 408) {
+              // Timeout error from facilitator
+              const errorData = await retry.json().catch(() => null)
+              const timeoutMessage = errorData?.error || 'Facilitator timed out verifying transaction, please try again shortly.'
+              throw new Error(timeoutMessage)
+            } else {
+              const errText = await retry.text().catch(() => retry.statusText)
+              throw new Error(errText || `HTTP ${retry.status}`)
+            }
           }
         } catch (signErr) {
           throw signErr
-        }
-      } else {
-        if (!response.ok) {
-          const errText = await response.text().catch(() => response.statusText)
-          throw new Error(errText || `HTTP ${response.status}`)
         }
       }
 
@@ -409,9 +409,8 @@ function VideoPlayer({
       }
     } catch (error) {
       console.error('Failed to send tip:', error)
-      setTipError(error.message || 'Tip failed. Please try again.')
+      showToast(error.message || 'Tip failed. Please try again.', 'error')
       setLoading(false)
-      setShowTipToast(true)
       // Dispatch tip failure event for other components
       window.dispatchEvent(new CustomEvent('tipFailure', { detail: { amount, error: error.message } }))
     } finally {
@@ -795,16 +794,7 @@ function VideoPlayer({
           </div>
         )}
 
-        {/* Toast notifications for tip failures */}
-        <ToastContainer>
-          <Toast
-            message={tipError}
-            type="warning"
-            show={showTipToast}
-            onClose={() => setShowTipToast(false)}
-            duration={8000}
-          />
-        </ToastContainer>
+        {/* Toast notifications now use centralized system */}
       </div>
     </div>
   )

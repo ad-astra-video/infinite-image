@@ -6,7 +6,7 @@ import { buildX402TypedData } from '../utils/x402'
 import { API_BASE } from '../utils/apiConfig'
 import { SiweMessage } from 'siwe'
 import EphemeralKeyManager from '../utils/EphemeralKeyManager'
-import { Toast, ToastContainer } from './Toast'
+import { useToastContext } from './ToastProvider'
 
 // Comprehensive Wallet Context - single source of truth for all wallet data
 // Default to `null` so using the hook outside a provider throws early and
@@ -22,14 +22,12 @@ export function WalletProvider({ children }) {
   const { address, isConnected, chain } = useAccount()
   const { signTypedDataAsync } = useSignTypedData()
   const { signMessageAsync } = useSignMessage()
+  const { showToast } = useToastContext()
   const accountRef = useRef({ address, isConnected, chain })
 
   // Enhanced authentication state
   const [ephemeralManager, setEphemeralManager] = useState(null)
   const [enhancedAuth, setEnhancedAuth] = useState({ authenticated: false, expiresAt: null, expired: false })
-  
-  // Toast notification state for session warnings
-  const [sessionWarning, setSessionWarning] = useState({ show: false, message: '', action: null })
   
   // App name state from backend
   const [appName, setAppName] = useState('infinite-stream')
@@ -328,21 +326,9 @@ export function WalletProvider({ children }) {
         if ((data.data.expired || data.data.expiresSoon) && data.data.authenticated) {
           const minutesLeft = Math.ceil(data.data.timeUntilExpiry / (60 * 1000))
           const message = `Your session will expire in ${minutesLeft} minute${minutesLeft !== 1 ? 's' : ''}. Click to extend your login.`
-          const action = (
-            <button
-              onClick={() => {
-                setSessionWarning({ show: false, message: '', action: null })
-                performEnhancedSIWE().catch(console.error)
-              }}
-              className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-            >
-              Extend Login
-            </button>
-          )
-          setSessionWarning({ show: true, message, action })
+          showToast(message, 'warning', 0) // Don't auto-dismiss session warnings
         } else {
-          // Hide warning if session is no longer expiring soon
-          setSessionWarning({ show: false, message: '', action: null })
+          // Session is fine, no warning needed
         }
 
         return data.data
@@ -434,9 +420,7 @@ export function WalletProvider({ children }) {
       createLoginSignature,
       siweValidated,
 
-      // Session warning state
-      sessionWarning,
-      setSessionWarning,
+      // Session warning state - now using centralized toast system
     }
     
     return value
@@ -459,9 +443,7 @@ export function WalletProvider({ children }) {
     siweValidated,
     connected,
     appName,
-    refetchUsdc,
-    sessionWarning,
-    setSessionWarning
+    refetchUsdc
   ])
 
   return (
@@ -470,19 +452,7 @@ export function WalletProvider({ children }) {
         {children}
       </WalletContext.Provider>
       
-      {/* Toast notification for session warnings */}
-      <ToastContainer>
-        {sessionWarning.show && (
-          <Toast
-            message={sessionWarning.message}
-            type="warning"
-            show={sessionWarning.show}
-            action={sessionWarning.action}
-            onClose={() => setSessionWarning({ show: false, message: '', action: null })}
-            duration={0} // Don't auto-dismiss session warnings
-          />
-        )}
-      </ToastContainer>
+      {/* Session warnings now use centralized toast system */}
     </>
   )
 }
