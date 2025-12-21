@@ -142,13 +142,22 @@ class InfiniteFlux2StreamHandlers:
                 ],
             },
         ]
+        
         tokenized = self.text_tokenizer.encode_chat_completion(ChatCompletionRequest(messages=messages))
         input_ids = torch.tensor([tokenized.tokens]).to("cuda")
         attention_mask = torch.ones_like(input_ids)
-
-        output = self.text_encoder.generate(input_ids=input_ids, attention_mask=attention_mask, max_new_tokens=32768)[0]
-
-        return self.text_tokenizer.decode(output[len(tokenized.tokens) :])
+        with torch.no_grad():
+            output = self.text_encoder.generate(input_ids=input_ids, attention_mask=attention_mask, max_new_tokens=32768)[0]
+        # Extract only the generated tokens (excluding input tokens)
+        input_length = len(tokenized.tokens)
+        if len(output) > input_length:
+            generated_tokens = output[input_length:]
+            enhanced_prompt = self.text_tokenizer.decode(generated_tokens, skip_special_tokens=True)
+            return enhanced_prompt.strip()
+        else:
+            # Fallback if generation failed
+            logger.warning("Prompt enhancement failed - returning original prompt")
+            return prompt
     
     async def create_placeholder_frame(self):
         #create placeholder image for frames until first generation completed
